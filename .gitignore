@@ -1,0 +1,13 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# dependencies (when we add a backend in Step 2)
+node_modules/
+
+# secrets — never commit your Neynar key / env
+.env
+.env.local
+
+# vercel
+.vercel
