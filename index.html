@@ -4,12 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>your farcaster city</title>
-
-<!--
-  STEP 3 NOTE (ignore for now): this tag makes the app launchable from a feed.
-  <meta name="fc:miniapp" content='{"version":"1","imageUrl":"...","button":{...}}' />
--->
-
+<!-- STEP 3: <meta name="fc:miniapp" content='{"version":"1","imageUrl":"...","button":{...}}' /> -->
 <style>
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
   html,body{margin:0;height:100%;overflow:hidden;background:#160f29;
@@ -17,18 +12,16 @@
   #app{position:relative;height:100vh;height:100dvh;display:flex;flex-direction:column;}
   header{display:flex;align-items:center;gap:10px;padding:14px 16px 8px;}
   header h1{font-size:16px;font-weight:600;margin:0;letter-spacing:.2px;}
-  .badge{font-size:10px;color:#8479ad;border:1px solid #352a55;padding:2px 7px;border-radius:99px;
-    text-transform:uppercase;letter-spacing:.5px;}
+  .badge{font-size:10px;color:#8479ad;border:1px solid #352a55;padding:2px 7px;border-radius:99px;text-transform:uppercase;letter-spacing:.5px;}
   .controls{display:flex;flex-wrap:wrap;gap:8px;padding:0 16px 10px;align-items:center;}
   .seg{display:inline-flex;background:#1d1536;border:1px solid #352a55;border-radius:10px;padding:3px;}
-  .seg button{border:0;background:transparent;color:#b3a9d6;font-size:12px;padding:6px 11px;
-    border-radius:7px;cursor:pointer;font-weight:500;}
+  .seg button{border:0;background:transparent;color:#b3a9d6;font-size:13px;padding:6px 11px;border-radius:7px;cursor:pointer;font-weight:500;}
   .seg button.on{background:#7c63d4;color:#fff;}
   .hint{font-size:11px;color:#8479ad;}
   #stage{flex:1;position:relative;}
   canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab;}
-  #panel{position:absolute;left:12px;right:12px;bottom:12px;background:rgba(29,21,54,.92);
-    backdrop-filter:blur(8px);border:1px solid #352a55;border-radius:16px;padding:12px 15px;font-size:13px;color:#b3a9d6;}
+  #panel{position:absolute;left:12px;right:12px;bottom:12px;background:rgba(29,21,54,.92);backdrop-filter:blur(8px);
+    border:1px solid #352a55;border-radius:16px;padding:12px 15px;font-size:13px;color:#b3a9d6;}
   #panel b{color:#efeafe;font-weight:600;}
 </style>
 </head>
@@ -41,29 +34,21 @@
       <button data-s="inbound">inbound</button>
       <button data-s="outbound">outbound</button>
     </div>
-    <span class="hint">drag to pan · scroll to zoom · tap a building</span>
+    <div class="seg" id="rot"><button data-r="-1">&#8634;</button><button data-r="1">&#8635;</button></div>
+    <span class="hint">drag to pan · scroll to zoom · turn with &#8634; &#8635; · tap a building</span>
   </div>
-  <div id="stage">
-    <canvas id="city"></canvas>
-    <div id="panel"></div>
-  </div>
+  <div id="stage"><canvas id="city"></canvas><div id="panel"></div></div>
 </div>
 
 <script>
 (async function(){
-/* ---------------------------------------------------------------
-   1. CONNECT TO FARCASTER  (robust: if SDK can't load, demo mode)
-----------------------------------------------------------------*/
+/* 1. FARCASTER (robust: demo mode if SDK can't load) */
 let sdk=null, viewer=null;
 try { const mod = await import('https://esm.sh/@farcaster/miniapp-sdk'); sdk = mod.sdk; } catch(e){}
 if (sdk) { try { const cx = await sdk.context; viewer = cx?.user ?? null; await sdk.actions.ready(); } catch(e){} }
 
-/* ---------------------------------------------------------------
-   2. GET CITY DATA  —  STEP 2 changes ONLY this function.
-   Later: const r = await fetch('/api/city?fid=' + viewer.fid); return await r.json();
-   Per person: { handle, fid, inbound:{replies,likes,recasts,mentions},
-                 outbound:{...}, lastActiveMinutes }
-----------------------------------------------------------------*/
+/* 2. DATA — STEP 2 changes only this. Returns per person:
+   {handle, fid, inbound:{replies,likes,recasts,mentions}, outbound:{...}, lastActiveMinutes} */
 async function loadCity(viewer){
   const demo=[["dwr",[22,70,12,5],[18,40,8,3],8],["v",[19,55,10,4],[15,35,7,2],19],
     ["jessepollak",[16,48,14,2],[14,38,9,3],3],["linda",[14,40,6,3],[12,30,5,2],52],
@@ -77,27 +62,22 @@ async function loadCity(viewer){
     ["july",[1,2,0,0],[0,1,0,0],260],["proxy",[0,2,0,1],[0,1,0,0],50],
     ["greg",[0,1,1,0],[0,1,0,0],500],["zach",[0,1,0,0],[0,1,0,0],17]];
   const KK=["replies","likes","recasts","mentions"], obj=a=>Object.fromEntries(KK.map((k,i)=>[k,a[i]]));
-  return demo.map(([h,i,o,lm])=>({handle:h, fid:null, inbound:obj(i), outbound:obj(o), lastActiveMinutes:lm}));
+  return demo.map(([h,i,o,lm])=>({handle:h,fid:null,inbound:obj(i),outbound:obj(o),lastActiveMinutes:lm}));
 }
 
-/* ---------------------------------------------------------------
-   3. SCORING + LIGHTING
-----------------------------------------------------------------*/
+/* 3. SCORING + LIGHTING */
 const W={replies:3,recasts:2,mentions:2,likes:1};
 let scope="mutual";
-function bucket(p){const i=p.inbound,o=p.outbound;
-  if(scope==="inbound")return i; if(scope==="outbound")return o;
+function bucket(p){const i=p.inbound,o=p.outbound;if(scope==="inbound")return i;if(scope==="outbound")return o;
   return {replies:i.replies+o.replies,likes:i.likes+o.likes,recasts:i.recasts+o.recasts,mentions:i.mentions+o.mentions};}
 function score(p){const b=bucket(p);return b.replies*W.replies+b.recasts*W.recasts+b.mentions*W.mentions+b.likes*W.likes;}
 const litRatio=m=>Math.max(0.05,1-Math.floor(m/30)*0.17);
 const ago=m=>m<60?m+"m ago":Math.round(m/60)+"h ago";
 
-/* ---------------------------------------------------------------
-   4. RENDERER
-----------------------------------------------------------------*/
+/* 4. RENDERER */
 const cv=document.getElementById("city"),ctx=cv.getContext("2d"),panel=document.getElementById("panel");
 const TW=54,TH=27,FOOT=0.54,X0=-9,X1=9,Y0=-9,Y1=9,MAX_CITY=50;
-let people=[],dpr=1,CW=0,CH=0,off={x:0,y:0},dragBase={x:0,y:0},hit=[],sel=null,hov=null,zoom=0.72;
+let people=[],dpr=1,CW=0,CH=0,off={x:0,y:0},dragBase={x:0,y:0},hit=[],sel=null,hov=null,zoom=0.8,rot=0;
 const PAL=[[124,99,212],[92,118,210],[110,86,196],[88,76,170],[60,140,150],[140,96,180]];
 const PLUM=[150,86,160];
 const sh=(c,f)=>`rgb(${Math.min(255,c[0]*f|0)},${Math.min(255,c[1]*f|0)},${Math.min(255,c[2]*f|0)})`;
@@ -119,7 +99,6 @@ const isPlot=(x,y)=>plotSet.has(x+","+y);
 const inArea=(x,y)=>x>=X0&&x<=X1&&y>=Y0&&y<=Y1;
 const isRoad=(x,y)=>inArea(x,y)&&!isPlot(x,y);
 
-/* reserve a central 2x2 for "you" */
 function findYou(){let best=null,bd=1e9;
   for(let gx=X0;gx<X1;gx++)for(let gy=Y0;gy<Y1;gy++){
     if(isPlot(gx,gy)&&isPlot(gx+1,gy)&&isPlot(gx,gy+1)&&isPlot(gx+1,gy+1)){
@@ -131,24 +110,33 @@ const youCells=you2?[[you2[0],you2[1]],[you2[0]+1,you2[1]],[you2[0],you2[1]+1],[
 const youSet=new Set(youCells.map(c=>c[0]+","+c[1]));
 const YMINX=Math.min(...youCells.map(c=>c[0])),YMAXX=Math.max(...youCells.map(c=>c[0])),
       YMINY=Math.min(...youCells.map(c=>c[1])),YMAXY=Math.max(...youCells.map(c=>c[1]));
-
-const inPlot=(x,y)=>plotSet.has(x+","+y)&&!youSet.has(x+","+y);
-const openness=c=>DIRS.reduce((n,[dx,dy])=>n+(inPlot(c[0]+dx,c[1]+dy)?1:0),0);
+const YCX=(YMINX+YMAXX)/2, YCY=(YMINY+YMAXY)/2;
 const avail=plots.filter(c=>!youSet.has(c[0]+","+c[1]));
+
+/* placement: city grows OUTWARD from you (compact core); high tiers get a plaza */
 let feats=[];
 function assign(){
-  const ranked=[...people].sort((a,b)=>score(b)-score(a));
-  /* isolated lots first (low openness) -> high-interaction get space;
-     dense interior cells -> low-interaction cluster shoulder-to-shoulder */
-  const cells=[...avail].sort((a,b)=>(openness(a)-openness(b))||(((a[0]*73+a[1]*131)&255)-((b[0]*73+b[1]*131)&255)));
-  ranked.forEach((p,i)=>p.cell=cells[i]);
+  const mv=Math.max(1,...people.map(score));
+  const order=[...people.keys()].sort((a,b)=>(((a*73+11)&255)-((b*73+11)&255)));   // decoupled from score
+  const cells=[...avail].sort((a,b)=>(((a[0]-YCX)**2+(a[1]-YCY)**2)-((b[0]-YCX)**2+(b[1]-YCY)**2)));
+  const blocked=new Set(),placed=new Set();let ci=0;
+  people.forEach(p=>p.cell=null);
+  order.forEach(idx=>{const p=people[idx];
+    while(ci<cells.length&&blocked.has(cells[ci][0]+","+cells[ci][1]))ci++;
+    if(ci>=cells.length)return;
+    const cell=cells[ci];ci++;p.cell=cell;const kk=cell[0]+","+cell[1];blocked.add(kk);placed.add(kk);
+    if(tier(score(p)/mv)>=3)DIRS.forEach(([dx,dy])=>blocked.add((cell[0]+dx)+","+(cell[1]+dy)));});
   feats=[];let wc=0;
-  cells.slice(ranked.length).forEach(c=>{const r=(c[0]*31+c[1]*17)&7,w=(c[0]*13+c[1]*29)&31;
+  cells.forEach(c=>{const kk=c[0]+","+c[1];if(placed.has(kk))return;
+    const r=(c[0]*31+c[1]*17)&7,w=(c[0]*13+c[1]*29)&31;
     if(r===0)feats.push([c,"tree"]);else if(w===0&&wc<2){feats.push([c,"water"]);wc++;}});}
 
+/* 90° turntable: rotate grid coords before projecting */
+function rotc(gx,gy){switch(((rot%4)+4)%4){case 1:return[gy,-gx];case 2:return[-gx,-gy];case 3:return[-gy,gx];}return[gx,gy];}
 const baseO=()=>({x:CW/2,y:CH*0.42});
 const origin=()=>({x:baseO().x+off.x,y:baseO().y+off.y});
-const iso=(gx,gy)=>{const o=origin();return {x:o.x+(gx-gy)*TW*zoom/2,y:o.y+(gx+gy)*TH*zoom/2};};
+const iso=(gx,gy)=>{const r=rotc(gx,gy),o=origin();return {x:o.x+(r[0]-r[1])*TW*zoom/2,y:o.y+(r[0]+r[1])*TH*zoom/2};};
+const depth=(gx,gy)=>{const r=rotc(gx,gy);return r[0]+r[1];};
 
 function sky(){const g=ctx.createLinearGradient(0,0,0,CH);
   g.addColorStop(0,"#160f29");g.addColorStop(.5,"#241640");g.addColorStop(1,"#39265e");
@@ -195,40 +183,47 @@ function building(gx,gy,h,col,tr,id,ratio){
   hit.push({id,x:c.x-(fw+8)/2,y:topY,w:fw+8,h:(c.y+fh/2)-topY});}
 
 function drawYou(label){
-  const m=0.14;
-  const top=iso(YMINX-0.5+m,YMINY-0.5+m),right=iso(YMAXX+0.5-m,YMINY-0.5+m),
-        bottom=iso(YMAXX+0.5-m,YMAXY+0.5-m),left=iso(YMINX-0.5+m,YMAXY+0.5-m);
-  const H=30*zoom,hl=sel===-1;
-  const tt={x:top.x,y:top.y-H},tr={x:right.x,y:right.y-H},tb={x:bottom.x,y:bottom.y-H},tl={x:left.x,y:left.y-H};
-  ctx.beginPath();ctx.moveTo(left.x,left.y);ctx.lineTo(bottom.x,bottom.y);ctx.lineTo(tb.x,tb.y);ctx.lineTo(tl.x,tl.y);ctx.closePath();
+  const c=iso(YCX,YCY),hw=TW*zoom,hh=TH*zoom,H=28*zoom,hl=sel===-1;
+  const d={t:{x:c.x,y:c.y-hh},r:{x:c.x+hw,y:c.y},b:{x:c.x,y:c.y+hh},l:{x:c.x-hw,y:c.y}};
+  const tp={t:{x:d.t.x,y:d.t.y-H},r:{x:d.r.x,y:d.r.y-H},b:{x:d.b.x,y:d.b.y-H},l:{x:d.l.x,y:d.l.y-H}};
+  ctx.beginPath();ctx.moveTo(d.l.x,d.l.y);ctx.lineTo(d.b.x,d.b.y);ctx.lineTo(tp.b.x,tp.b.y);ctx.lineTo(tp.l.x,tp.l.y);ctx.closePath();
   ctx.fillStyle=sh(PLUM,hl?0.78:0.6);ctx.fill();
-  ctx.beginPath();ctx.moveTo(bottom.x,bottom.y);ctx.lineTo(right.x,right.y);ctx.lineTo(tr.x,tr.y);ctx.lineTo(tb.x,tb.y);ctx.closePath();
+  ctx.beginPath();ctx.moveTo(d.b.x,d.b.y);ctx.lineTo(d.r.x,d.r.y);ctx.lineTo(tp.r.x,tp.r.y);ctx.lineTo(tp.b.x,tp.b.y);ctx.closePath();
   ctx.fillStyle=sh(PLUM,hl?1.0:0.82);ctx.fill();
-  ctx.beginPath();ctx.moveTo(tt.x,tt.y);ctx.lineTo(tr.x,tr.y);ctx.lineTo(tb.x,tb.y);ctx.lineTo(tl.x,tl.y);ctx.closePath();
-  ctx.fillStyle=sh(PLUM,hl?1.25:1.05);ctx.fill();ctx.strokeStyle="rgba(255,255,255,0.14)";ctx.lineWidth=1;ctx.stroke();
-  const mx=(tt.x+tb.x)/2,my=(tt.y+tb.y)/2;
-  ctx.beginPath();ctx.moveTo((tt.x+mx)/2,(tt.y+my)/2);ctx.lineTo((tr.x+mx)/2,(tr.y+my)/2);
-  ctx.lineTo((tb.x+mx)/2,(tb.y+my)/2);ctx.lineTo((tl.x+mx)/2,(tl.y+my)/2);ctx.closePath();
-  ctx.fillStyle=sh(PLUM,0.9);ctx.fill();
-  ctx.fillStyle="#efeafe";ctx.font=`600 ${Math.round(13*zoom)+3}px sans-serif`;ctx.textAlign="center";ctx.fillText(label,mx,tt.y-9*zoom);
-  hit.push({id:-1,x:left.x,y:tt.y,w:right.x-left.x,h:bottom.y-tt.y});}
+  ctx.beginPath();ctx.moveTo(tp.t.x,tp.t.y);ctx.lineTo(tp.r.x,tp.r.y);ctx.lineTo(tp.b.x,tp.b.y);ctx.lineTo(tp.l.x,tp.l.y);ctx.closePath();
+  ctx.fillStyle=sh(PLUM,hl?1.28:1.06);ctx.fill();ctx.strokeStyle="rgba(255,255,255,0.16)";ctx.lineWidth=1;ctx.stroke();
+  ctx.fillStyle="#efeafe";ctx.font=`600 ${Math.round(13*zoom)+3}px sans-serif`;ctx.textAlign="center";ctx.fillText(label,c.x,tp.t.y-9*zoom);
+  hit.push({id:-1,x:c.x-hw,y:tp.t.y,w:hw*2,h:(c.y+hh)-tp.t.y});}
 
-/* reaction icons that travel the road network */
+/* reaction icons that ferry to-and-fro between each building and you */
 const roadNeighbors=(gx,gy)=>DIRS.filter(([dx,dy])=>isRoad(gx+dx,gy+dy));
-const movers=[];
-function initMovers(){movers.length=0;const rc=[];
-  for(let gx=X0;gx<=X1;gx++)for(let gy=Y0;gy<=Y1;gy++)if(isRoad(gx,gy))rc.push([gx,gy]);
-  if(!rc.length)return;
-  for(let i=0;i<18;i++){const s=rc[Math.floor(rng()*rc.length)],nb=roadNeighbors(s[0],s[1]);if(!nb.length)continue;
-    movers.push({cur:[s[0],s[1]],dir:nb[Math.floor(rng()*nb.length)],t:rng(),spd:0.5+rng()*0.5,type:K[i%K.length]});}}
-function stepMover(m,dt){m.t+=m.spd*dt;
-  while(m.t>=1){m.t-=1;m.cur=[m.cur[0]+m.dir[0],m.cur[1]+m.dir[1]];
-    const nb=roadNeighbors(m.cur[0],m.cur[1]),rev=[-m.dir[0],-m.dir[1]];
-    const straight=nb.find(d=>d[0]===m.dir[0]&&d[1]===m.dir[1]);
-    const opts=nb.filter(d=>!(d[0]===rev[0]&&d[1]===rev[1]));
-    if(straight&&rng()<0.6)m.dir=straight;else if(opts.length)m.dir=opts[Math.floor(rng()*opts.length)];else m.dir=rev;}}
-function moverPos(m){const a=iso(m.cur[0],m.cur[1]),b=iso(m.cur[0]+m.dir[0],m.cur[1]+m.dir[1]);
-  return {x:a.x+(b.x-a.x)*m.t,y:a.y+(b.y-a.y)*m.t};}
+function weightedType(p){const b=bucket(p);let tot=0;K.forEach(k=>tot+=b[k]);if(tot<=0)return"likes";
+  let r=rng()*tot;for(const k of K){r-=b[k];if(r<=0)return k;}return"likes";}
+let movers=[];
+function buildMovers(){
+  const kkey=(x,y)=>x+","+y;
+  let sources=[];youCells.forEach(c=>DIRS.forEach(([dx,dy])=>{if(isRoad(c[0]+dx,c[1]+dy))sources.push([c[0]+dx,c[1]+dy]);}));
+  for(let rad=1;rad<=5&&!sources.length;rad++)youCells.forEach(c=>{for(let dx=-rad;dx<=rad;dx++)for(let dy=-rad;dy<=rad;dy++)
+    if(Math.max(Math.abs(dx),Math.abs(dy))===rad){const nx=c[0]+dx,ny=c[1]+dy;if(isRoad(nx,ny))sources.push([nx,ny]);}});
+  const parent=new Map(),dist=new Map(),q=[];let head=0;
+  sources.forEach(s=>{const k=kkey(s[0],s[1]);if(!dist.has(k)){dist.set(k,0);parent.set(k,null);q.push(s);}});
+  while(head<q.length){const cur=q[head++],k=kkey(cur[0],cur[1]);
+    DIRS.forEach(([dx,dy])=>{const nx=cur[0]+dx,ny=cur[1]+dy;if(isRoad(nx,ny)){const nk=kkey(nx,ny);
+      if(!dist.has(nk)){dist.set(nk,dist.get(k)+1);parent.set(nk,cur);q.push([nx,ny]);}}});}
+  const paths=[];
+  people.forEach((p,idx)=>{if(!p.cell)return;let entry=null;
+    for(let rad=1;rad<=2&&!entry;rad++)for(let dx=-rad;dx<=rad&&!entry;dx++)for(let dy=-rad;dy<=rad&&!entry;dy++){
+      const nx=p.cell[0]+dx,ny=p.cell[1]+dy;if(isRoad(nx,ny)&&dist.has(kkey(nx,ny)))entry=[nx,ny];}
+    if(!entry)return;
+    const chain=[];let cur=entry,guard=0;
+    while(cur&&guard++<400){chain.push([cur[0],cur[1]]);cur=parent.get(kkey(cur[0],cur[1]));}
+    const cells=[[p.cell[0],p.cell[1]],...chain,[YCX,YCY]];
+    if(cells.length>=2)paths.push({cells,type:weightedType(p)});});
+  movers=paths.slice(0,16).map(p=>{const L=p.cells.length-1;return {cells:p.cells,type:p.type,u:rng()*L,dir:rng()<0.5?1:-1,spd:0.8+rng()*0.7};});}
+function stepMover(m,dt){const L=m.cells.length-1;m.u+=m.spd*dt*m.dir;
+  if(m.u>=L){m.u=L;m.dir=-1;}if(m.u<=0){m.u=0;m.dir=1;}}
+function moverGrid(m){const L=m.cells.length-1;let s=Math.floor(m.u);if(s>=L)s=L-1;if(s<0)s=0;const f=m.u-s;
+  return [m.cells[s][0]+(m.cells[s+1][0]-m.cells[s][0])*f, m.cells[s][1]+(m.cells[s+1][1]-m.cells[s][1])*f];}
 
 const ICON={replies:"#7db4e6",recasts:"#7bd6a0",likes:"#f08aa0",mentions:"#b79bf0"};
 function glyph(t,x,y,a,sc){sc=sc||1;const S=sc;ctx.save();ctx.globalAlpha=a;ctx.fillStyle=ICON[t];ctx.strokeStyle=ICON[t];
@@ -244,10 +239,10 @@ function drawCity(){hit=[];sky();
   for(let gx=X0;gx<=X1;gx++)for(let gy=Y0;gy<=Y1;gy++)stripe(gx,gy);
   const mv=Math.max(1,...people.map(score)),items=[];
   people.forEach((p,i)=>{if(!p.cell)return;const v=score(p),r=v/mv;
-    items.push({kind:"b",gx:p.cell[0],gy:p.cell[1],depth:p.cell[0]+p.cell[1],h:24+Math.pow(r,0.7)*150,col:PAL[i%PAL.length],tr:tier(r),id:i,ratio:litRatio(p.lastActiveMinutes)});});
-  feats.forEach(([c,t])=>items.push({kind:t,gx:c[0],gy:c[1],depth:c[0]+c[1]}));
-  items.push({kind:"you",depth:(YMINX+YMAXX)/2+(YMINY+YMAXY)/2});
-  movers.forEach(m=>{const gx=m.cur[0]+m.dir[0]*m.t,gy=m.cur[1]+m.dir[1]*m.t;items.push({kind:"m",m,depth:gx+gy});});
+    items.push({kind:"b",gx:p.cell[0],gy:p.cell[1],depth:depth(p.cell[0],p.cell[1]),h:24+Math.pow(r,0.7)*150,col:PAL[i%PAL.length],tr:tier(r),id:i,ratio:litRatio(p.lastActiveMinutes)});});
+  feats.forEach(([c,t])=>items.push({kind:t,gx:c[0],gy:c[1],depth:depth(c[0],c[1])}));
+  items.push({kind:"you",depth:depth(YCX,YCY)});
+  movers.forEach(m=>{const g=moverGrid(m);items.push({kind:"m",m,depth:depth(g[0],g[1])});});
   items.sort((a,b)=>a.depth-b.depth);
   const youName=viewer?.username?"@"+viewer.username:"you",gs=Math.min(1.3,Math.max(0.75,zoom));
   items.forEach(o=>{
@@ -255,23 +250,20 @@ function drawCity(){hit=[];sky();
     else if(o.kind==="water")water(o.gx,o.gy);
     else if(o.kind==="you")drawYou(youName);
     else if(o.kind==="b")building(o.gx,o.gy,o.h,o.col,o.tr,o.id,o.ratio);
-    else{const p=moverPos(o.m);
+    else{const g=moverGrid(o.m),p=iso(g[0],g[1]);
       ctx.save();ctx.globalAlpha=0.22;ctx.fillStyle="#000";ctx.beginPath();ctx.ellipse(p.x,p.y+3*zoom,5*zoom,2.2*zoom,0,0,7);ctx.fill();ctx.restore();
-      glyph(o.m.type,p.x,p.y-3*zoom,0.95,gs);}
-  });}
+      glyph(o.m.type,p.x,p.y-3*zoom,0.95,gs);}});}
 
 let last=performance.now();
 function loop(now){const dt=Math.min(0.05,(now-last)/1000);last=now;
-  movers.forEach(m=>stepMover(m,dt));
-  drawCity();
-  requestAnimationFrame(loop);}
-
+  movers.forEach(m=>stepMover(m,dt));drawCity();requestAnimationFrame(loop);}
 function resize(){dpr=window.devicePixelRatio||1;CW=cv.clientWidth||680;CH=cv.clientHeight||450;
   cv.width=CW*dpr;cv.height=CH*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);}
+function refresh(){assign();buildMovers();}
 
 function showPanel(id){
-  if(id===-1){panel.innerHTML='<b>you</b> · the factory at the center — everyone else is built around you.';return;}
-  if(id===null||id===undefined||id<0){panel.textContent="reactions ride the streets · bright building = active recently · drag, scroll, tap";return;}
+  if(id===-1){panel.innerHTML='<b>you</b> · the factory at the center — the whole city is a to-and-fro of you.';return;}
+  if(id===null||id===undefined||id<0){panel.textContent="reactions ferry to & from you · bright building = active recently · drag, scroll, turn, tap";return;}
   const p=people[id],b=bucket(p),act=p.lastActiveMinutes<30;
   panel.innerHTML=`<b>@${p.handle}</b> · <span style="color:${act?'#8fd4b8':'#8479ad'}">${act?'active':'last seen'} ${ago(p.lastActiveMinutes)}</span> · `+
     `${b.replies} replies, ${b.likes} likes, ${b.recasts} recasts, ${b.mentions} mentions`;}
@@ -280,22 +272,22 @@ function pick(mx,my){for(let k=hit.length-1;k>=0;k--){const b=hit[k];if(mx>=b.x&
 let dragging=false,moved=false,start={x:0,y:0};
 cv.addEventListener("pointerdown",e=>{dragging=true;moved=false;start={x:e.clientX,y:e.clientY};dragBase={x:off.x,y:off.y};cv.setPointerCapture(e.pointerId);cv.style.cursor="grabbing";});
 cv.addEventListener("pointermove",e=>{const r=cv.getBoundingClientRect();
-  if(dragging){const dx=e.clientX-start.x,dy=e.clientY-start.y;if(Math.abs(dx)+Math.abs(dy)>4){moved=true;}off={x:dragBase.x+dx,y:dragBase.y+dy};}
+  if(dragging){const dx=e.clientX-start.x,dy=e.clientY-start.y;if(Math.abs(dx)+Math.abs(dy)>4)moved=true;off={x:dragBase.x+dx,y:dragBase.y+dy};}
   else{const id=pick(e.clientX-r.left,e.clientY-r.top);if(id!==hov){hov=(id!==null&&id>=0)?id:null;cv.style.cursor=(id!==null)?"pointer":"grab";}}});
 cv.addEventListener("pointerup",e=>{dragging=false;cv.style.cursor="grab";
   if(!moved){const r=cv.getBoundingClientRect();const id=pick(e.clientX-r.left,e.clientY-r.top);sel=(id!==null)?id:null;showPanel(sel);}});
 cv.addEventListener("wheel",e=>{e.preventDefault();const r=cv.getBoundingClientRect(),S={x:e.clientX-r.left,y:e.clientY-r.top};
-  const o=origin(),nz=Math.max(0.4,Math.min(2,zoom*(e.deltaY<0?1.1:0.9))),k=nz/zoom;
-  const nox=S.x-(S.x-o.x)*k,noy=S.y-(S.y-o.y)*k;
-  off={x:nox-baseO().x,y:noy-baseO().y};zoom=nz;},{passive:false});
+  const o=origin(),nz=Math.max(0.45,Math.min(2.2,zoom*(e.deltaY<0?1.08:0.926))),k=nz/zoom;
+  off={x:(S.x-(S.x-o.x)*k)-baseO().x,y:(S.y-(S.y-o.y)*k)-baseO().y};zoom=nz;},{passive:false});
 document.getElementById("scope").addEventListener("click",e=>{const btn=e.target.closest("button");if(!btn)return;
-  document.querySelectorAll("#scope button").forEach(b=>b.classList.remove("on"));btn.classList.add("on");scope=btn.dataset.s;sel=null;assign();showPanel(null);});
+  document.querySelectorAll("#scope button").forEach(b=>b.classList.remove("on"));btn.classList.add("on");scope=btn.dataset.s;sel=null;refresh();showPanel(null);});
+document.getElementById("rot").addEventListener("click",e=>{const btn=e.target.closest("button");if(!btn)return;rot=(rot+(+btn.dataset.r)+4)%4;});
 window.addEventListener("resize",resize);
 
-/* ---- boot ---- */
+/* boot */
 people=(await loadCity(viewer)).slice(0,MAX_CITY);
 if(viewer)document.getElementById("mode-badge").textContent="live";
-assign(); initMovers(); resize(); showPanel(null); requestAnimationFrame(loop);
+refresh();resize();showPanel(null);requestAnimationFrame(loop);
 })();
 </script>
 </body>
