@@ -111,7 +111,16 @@ const youSet=new Set(youCells.map(c=>c[0]+","+c[1]));
 const YMINX=Math.min(...youCells.map(c=>c[0])),YMAXX=Math.max(...youCells.map(c=>c[0])),
       YMINY=Math.min(...youCells.map(c=>c[1])),YMAXY=Math.max(...youCells.map(c=>c[1]));
 const YCX=(YMINX+YMAXX)/2, YCY=(YMINY+YMAXY)/2;
-const avail=plots.filter(c=>!youSet.has(c[0]+","+c[1]));
+/* little roads spoking into you + a small plaza ring of open ground around it */
+const carve=new Set();
+function carveDir(sx,sy,dx,dy){let x=sx,y=sy;for(let step=0;step<4;step++){
+  if(!inArea(x,y)||isRoad(x,y))break; carve.add(x+","+y);plotSet.delete(x+","+y); x+=dx;y+=dy;}}
+carveDir(YMINX,YMINY-1,0,-1); carveDir(YMINX,YMAXY+1,0,1);
+carveDir(YMINX-1,YMINY,-1,0); carveDir(YMAXX+1,YMINY,1,0);
+const plaza=new Set();
+for(let x=YMINX-1;x<=YMAXX+1;x++)for(let y=YMINY-1;y<=YMAXY+1;y++){const k=x+","+y;
+  if(!inArea(x,y)||youSet.has(k)||carve.has(k))continue; if(plotSet.has(k))plaza.add(k);}
+const avail=plots.filter(c=>plotSet.has(c[0]+","+c[1])&&!youSet.has(c[0]+","+c[1])&&!plaza.has(c[0]+","+c[1]));
 
 /* placement: city grows OUTWARD from you (compact core); high tiers get a plaza */
 let feats=[];
@@ -182,8 +191,7 @@ function building(gx,gy,h,col,tr,id,ratio){
   const topY=c.y-H-fh/2-(tr>=3?20*zoom:0);
   hit.push({id,x:c.x-(fw+8)/2,y:topY,w:fw+8,h:(c.y+fh/2)-topY});}
 
-function drawYou(label){
-  const c=iso(YCX,YCY),hw=TW*zoom,hh=TH*zoom,H=28*zoom,hl=sel===-1;
+function drawYouBlock(){const c=iso(YCX,YCY),hw=TW*zoom,hh=TH*zoom,H=28*zoom,hl=sel===-1;
   const d={t:{x:c.x,y:c.y-hh},r:{x:c.x+hw,y:c.y},b:{x:c.x,y:c.y+hh},l:{x:c.x-hw,y:c.y}};
   const tp={t:{x:d.t.x,y:d.t.y-H},r:{x:d.r.x,y:d.r.y-H},b:{x:d.b.x,y:d.b.y-H},l:{x:d.l.x,y:d.l.y-H}};
   ctx.beginPath();ctx.moveTo(d.l.x,d.l.y);ctx.lineTo(d.b.x,d.b.y);ctx.lineTo(tp.b.x,tp.b.y);ctx.lineTo(tp.l.x,tp.l.y);ctx.closePath();
@@ -191,9 +199,16 @@ function drawYou(label){
   ctx.beginPath();ctx.moveTo(d.b.x,d.b.y);ctx.lineTo(d.r.x,d.r.y);ctx.lineTo(tp.r.x,tp.r.y);ctx.lineTo(tp.b.x,tp.b.y);ctx.closePath();
   ctx.fillStyle=sh(PLUM,hl?1.0:0.82);ctx.fill();
   ctx.beginPath();ctx.moveTo(tp.t.x,tp.t.y);ctx.lineTo(tp.r.x,tp.r.y);ctx.lineTo(tp.b.x,tp.b.y);ctx.lineTo(tp.l.x,tp.l.y);ctx.closePath();
-  ctx.fillStyle=sh(PLUM,hl?1.28:1.06);ctx.fill();ctx.strokeStyle="rgba(255,255,255,0.16)";ctx.lineWidth=1;ctx.stroke();
-  ctx.fillStyle="#efeafe";ctx.font=`600 ${Math.round(13*zoom)+3}px sans-serif`;ctx.textAlign="center";ctx.fillText(label,c.x,tp.t.y-9*zoom);
-  hit.push({id:-1,x:c.x-hw,y:tp.t.y,w:hw*2,h:(c.y+hh)-tp.t.y});}
+  ctx.fillStyle=sh(PLUM,hl?1.28:1.06);ctx.fill();ctx.strokeStyle="rgba(255,255,255,0.16)";ctx.lineWidth=1;ctx.stroke();}
+function drawYouMarker(label){const c=iso(YCX,YCY),t=performance.now()*0.001,hl=sel===-1;
+  const cy=c.y-TH*zoom-28*zoom-20*zoom+Math.sin(t*2)*4*zoom;   // float just above the slab roof
+  const w=9*zoom*(0.82+0.18*Math.sin(t*3)), topH=16*zoom, botH=10*zoom;
+  ctx.save();ctx.globalAlpha=0.22;ctx.fillStyle="#9dff9d";ctx.beginPath();ctx.ellipse(c.x,cy,w*1.7,topH*0.95,0,0,7);ctx.fill();ctx.restore();
+  ctx.beginPath();ctx.moveTo(c.x,cy-topH);ctx.lineTo(c.x+w,cy);ctx.lineTo(c.x,cy+botH);ctx.closePath();ctx.fillStyle=hl?"#aaffb4":"#7CFC8A";ctx.fill();
+  ctx.beginPath();ctx.moveTo(c.x,cy-topH);ctx.lineTo(c.x-w,cy);ctx.lineTo(c.x,cy+botH);ctx.closePath();ctx.fillStyle=hl?"#5fd873":"#46c85a";ctx.fill();
+  ctx.strokeStyle="rgba(255,255,255,0.4)";ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(c.x,cy-topH);ctx.lineTo(c.x,cy+botH);ctx.stroke();
+  ctx.fillStyle="#eafff0";ctx.font=`600 ${Math.round(13*zoom)+2}px sans-serif`;ctx.textAlign="center";ctx.fillText(label,c.x,cy-topH-8*zoom);
+  hit.push({id:-1,x:c.x-TW*zoom,y:cy-topH-14*zoom,w:TW*zoom*2,h:(c.y+TH*zoom)-(cy-topH-14*zoom)});}
 
 /* reaction icons that ferry to-and-fro between each building and you */
 const roadNeighbors=(gx,gy)=>DIRS.filter(([dx,dy])=>isRoad(gx+dx,gy+dy));
@@ -229,7 +244,7 @@ function spawnOne(){
     if(scope!=="inbound"){const w=dirScore(p,"out")+0.6;cand.push({ln,dir:"out",p,w});tot+=w;}});
   if(tot<=0)return;let r=rng()*tot,c=cand[0];for(const x of cand){r-=x.w;if(r<=0){c=x;break;}}
   const counts=c.dir==="in"?c.p.inbound:c.p.outbound;
-  particles.push({cells:c.ln.cells,L:c.ln.L,dir:c.dir,u:c.dir==="in"?0:c.ln.L,type:pickType(counts),spd:1.8+rng()*0.8});}
+  particles.push({cells:c.ln.cells,L:c.ln.L,dir:c.dir,u:c.dir==="in"?0:c.ln.L,type:pickType(counts),spd:0.8+rng()*0.5});}
 function stepParticles(dt){spawnTimer+=dt;const interval=0.22;
   while(spawnTimer>interval&&particles.length<46){spawnTimer-=interval;spawnOne();}
   for(let i=particles.length-1;i>=0;i--){const q=particles[i];q.u+=(q.dir==="in"?1:-1)*q.spd*dt;
@@ -262,11 +277,12 @@ function drawCity(){hit=[];sky();
   items.forEach(o=>{
     if(o.kind==="tree")tree(o.gx,o.gy);
     else if(o.kind==="water")water(o.gx,o.gy);
-    else if(o.kind==="you")drawYou(youName);
+    else if(o.kind==="you")drawYouBlock();
     else if(o.kind==="b")building(o.gx,o.gy,o.h,o.col,o.tr,o.id,o.ratio);
     else{const g=partGrid(o.q),p=iso(g[0],g[1]),a=partAlpha(o.q);
       ctx.save();ctx.globalAlpha=0.18*a;ctx.fillStyle="#000";ctx.beginPath();ctx.ellipse(p.x,p.y+3*zoom,5*zoom,2.2*zoom,0,0,7);ctx.fill();ctx.restore();
-      glyph(o.q.type,p.x,p.y-3*zoom,0.95*a,gs);}});}
+      glyph(o.q.type,p.x,p.y-3*zoom,0.95*a,gs);}});
+  drawYouMarker(youName);}
 
 let last=performance.now();
 function loop(now){const dt=Math.min(0.05,(now-last)/1000);last=now;
