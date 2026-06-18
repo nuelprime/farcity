@@ -1,0 +1,20 @@
+{
+  "accountAssociation": {
+    "header": "PASTE_FROM_FARCASTER_TOOL",
+    "payload": "PASTE_FROM_FARCASTER_TOOL",
+    "signature": "PASTE_FROM_FARCASTER_TOOL"
+  },
+  "miniapp": {
+    "version": "1",
+    "name": "farcastadt",
+    "iconUrl": "https://farcity.vercel.app/icon.png",
+    "homeUrl": "https://farcity.vercel.app",
+    "imageUrl": "https://farcity.vercel.app/og.png",
+    "buttonTitle": "enter your city",
+    "splashImageUrl": "https://farcity.vercel.app/icon.png",
+    "splashBackgroundColor": "#160f29",
+    "description": "Your Farcaster graph as a living isometric city.",
+    "primaryCategory": "social",
+    "tags": ["farcaster", "social-graph", "visualization", "art"]
+  }
+}
