@@ -3,8 +3,12 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>your farcaster city</title>
-<!-- STEP 3: <meta name="fc:miniapp" content='{"version":"1","imageUrl":"...","button":{...}}' /> -->
+<title>farcastadt</title>
+<!-- Mini App embed. If your deployed URL isn't farcity.vercel.app, change the 3 URLs below to match. -->
+<meta name="fc:miniapp" content='{"version":"1","imageUrl":"https://farcity.vercel.app/og.png","button":{"title":"enter your city","action":{"type":"launch_miniapp","name":"farcastadt","url":"https://farcity.vercel.app","splashImageUrl":"https://farcity.vercel.app/icon.png","splashBackgroundColor":"#160f29"}}}' />
+<meta property="og:title" content="farcastadt" />
+<meta property="og:description" content="your Farcaster graph, as a living city" />
+<meta property="og:image" content="https://farcity.vercel.app/og.png" />
 <style>
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
   html,body{margin:0;height:100%;overflow:hidden;background:#160f29;
@@ -35,6 +39,7 @@
       <button data-s="outbound">outbound</button>
     </div>
     <div class="seg" id="rot"><button data-r="-1">&#8634;</button><button data-r="1">&#8635;</button></div>
+    <div class="seg" id="frame"><button data-m="6" class="on">6 mo</button><button data-m="7">7 mo</button></div>
     <span class="hint">drag to pan · scroll to zoom · turn with &#8634; &#8635; · tap a building</span>
   </div>
   <div id="stage"><canvas id="city"></canvas><div id="panel"></div></div>
@@ -82,11 +87,13 @@ async function loadCity(viewer){
     const ent=f=>{if(!map.has(f))map.set(f,{inbound:{replies:0,likes:0,recasts:0,mentions:0},outbound:{replies:0,likes:0,recasts:0,mentions:0},last:0});return map.get(f);};
     const touch=(e,ts)=>{const m=ts+FC_EPOCH;if(m>e.last)e.last=m;};
 
-    /* OUTBOUND: your casts (replies to + mentions) */
+    /* OUTBOUND: your casts (replies to + mentions) — also collect recent cast hashes for inbound */
+    const myHashes=[];
     for(const m of await tryPages(`/v1/castsByFid?fid=${MY_FID}&reverse=true`,600)){
       const b=m.data?.castAddBody;if(!b)continue;const ts=m.data.timestamp||0;
       if(b.parentCastId?.fid&&b.parentCastId.fid!==MY_FID){const e=ent(b.parentCastId.fid);e.outbound.replies++;touch(e,ts);}
       for(const mf of (b.mentions||[]))if(mf!==MY_FID){const e=ent(mf);e.outbound.mentions++;touch(e,ts);}
+      if(m.hash)myHashes.push(m.hash);
     }
     /* OUTBOUND: your reactions (likes + recasts) — reactionsByFid needs a reaction_type */
     for(const [rt,key] of [["REACTION_TYPE_LIKE","likes"],["REACTION_TYPE_RECAST","recasts"]]){
@@ -96,19 +103,36 @@ async function loadCity(viewer){
       }
     }
 
-    const wt=o=>o.replies*3+o.recasts*2+o.mentions*2+o.likes;
+    /* INBOUND: who engages YOU — replies + reactions on your recent casts, and mentions of you (run in parallel) */
+    const recent=myHashes.slice(0,20),jobs=[];
+    for(const hash of recent){
+      jobs.push(tryPages(`/v1/castsByParent?fid=${MY_FID}&hash=${hash}`,200).then(ms=>{
+        for(const m of ms){const af=m.data?.fid;if(!af||af===MY_FID)continue;const e=ent(af);e.inbound.replies++;touch(e,m.data.timestamp||0);}}));
+      for(const [rt,key] of [["REACTION_TYPE_LIKE","likes"],["REACTION_TYPE_RECAST","recasts"]])
+        jobs.push(tryPages(`/v1/reactionsByCast?target_fid=${MY_FID}&target_hash=${hash}&reaction_type=${rt}`,300).then(ms=>{
+          for(const m of ms){const rf=m.data?.fid;if(!rf||rf===MY_FID)continue;const e=ent(rf);e.inbound[key]++;touch(e,m.data.timestamp||0);}}));
+    }
+    jobs.push(tryPages(`/v1/castsByMention?fid=${MY_FID}&reverse=true`,400).then(ms=>{
+      for(const m of ms){const af=m.data?.fid;if(!af||af===MY_FID)continue;const e=ent(af);e.inbound.mentions++;touch(e,m.data.timestamp||0);}}));
+    await Promise.all(jobs);
+
+    const sc=b=>b.replies*3+b.recasts*2+b.mentions*2+b.likes, wt=v=>sc(v.inbound)+sc(v.outbound);
     let arr=[...map.entries()].map(([fid,v])=>({fid,handle:"fid:"+fid,inbound:v.inbound,outbound:v.outbound,
       lastActiveMinutes:v.last?Math.max(0,Math.round((nowS-v.last)/60)):9999}))
-      .filter(p=>wt(p.outbound)>0)
-      .sort((a,b)=>wt(b.outbound)-wt(a.outbound)).slice(0,40);
+      .filter(p=>wt(map.get(p.fid))>0)
+      .sort((a,b)=>wt(map.get(b.fid))-wt(map.get(a.fid))).slice(0,40);
     if(!arr.length)throw new Error("no interactions found");
 
-    /* resolve @handles for the top fids */
-    await Promise.all(arr.map(async p=>{try{
-      const r=await fetch(`${NODE}/v1/userDataByFid?fid=${p.fid}`);if(!r.ok)return;const j=await r.json();
-      for(const m of (j.messages||[])){const u=m.data?.userDataBody;
-        if(u&&(u.type==="USER_DATA_TYPE_USERNAME"||u.type===6)&&u.value)p.handle=u.value;}
-    }catch(e){}}));
+    /* for the top fids: resolve @handle + their REAL last activity (timestamp of their latest cast) */
+    await Promise.all(arr.map(async p=>{
+      try{const r=await fetch(`${NODE}/v1/userDataByFid?fid=${p.fid}`);if(r.ok){const j=await r.json();
+        for(const m of (j.messages||[])){const u=m.data?.userDataBody;
+          if(u&&(u.type==="USER_DATA_TYPE_USERNAME"||u.type===6)&&u.value)p.handle=u.value;}}
+      }catch(e){}
+      try{const r=await fetch(`${NODE}/v1/castsByFid?fid=${p.fid}&reverse=true&pageSize=1`);if(r.ok){const j=await r.json();
+        const t=j.messages?.[0]?.data?.timestamp;if(t)p.lastActiveMinutes=Math.max(0,Math.round((nowS-(t+FC_EPOCH))/60));}
+      }catch(e){}
+    }));
 
     if(badge)badge.textContent="live · node";
     return arr;
@@ -131,7 +155,7 @@ const ago=m=>m<60?m+"m ago":Math.round(m/60)+"h ago";
 /* 4. RENDERER */
 const cv=document.getElementById("city"),ctx=cv.getContext("2d"),panel=document.getElementById("panel");
 const TW=54,TH=27,FOOT=0.54,X0=-9,X1=9,Y0=-9,Y1=9,MAX_CITY=50;
-let people=[],dpr=1,CW=0,CH=0,off={x:0,y:0},dragBase={x:0,y:0},hit=[],sel=null,hov=null,zoom=0.8,rot=0;
+let people=[],allPeople=[],windowMonths=6,dpr=1,CW=0,CH=0,off={x:0,y:0},dragBase={x:0,y:0},hit=[],sel=null,hov=null,zoom=0.8,rot=0;
 const PAL=[[124,99,212],[92,118,210],[110,86,196],[88,76,170],[60,140,150],[140,96,180]];
 const PLUM=[150,86,160];
 const sh=(c,f)=>`rgb(${Math.min(255,c[0]*f|0)},${Math.min(255,c[1]*f|0)},${Math.min(255,c[2]*f|0)})`;
@@ -338,6 +362,9 @@ function loop(now){const dt=Math.min(0.05,(now-last)/1000);last=now;
 function resize(){dpr=window.devicePixelRatio||1;CW=cv.clientWidth||680;CH=cv.clientHeight||450;
   cv.width=CW*dpr;cv.height=CH*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);}
 function refresh(){assign();buildLanes();}
+function applyWindow(){const cut=windowMonths*30*1440;
+  const f=allPeople.filter(p=>p.lastActiveMinutes<=cut);
+  people=f.length?f:allPeople; sel=null; refresh();}
 
 function showPanel(id){
   if(id===-1){panel.innerHTML='<b>you</b> · the whole city is a give-and-take of you.';return;}
@@ -360,12 +387,14 @@ cv.addEventListener("wheel",e=>{e.preventDefault();const r=cv.getBoundingClientR
 document.getElementById("scope").addEventListener("click",e=>{const btn=e.target.closest("button");if(!btn)return;
   document.querySelectorAll("#scope button").forEach(b=>b.classList.remove("on"));btn.classList.add("on");scope=btn.dataset.s;sel=null;refresh();showPanel(null);});
 document.getElementById("rot").addEventListener("click",e=>{const btn=e.target.closest("button");if(!btn)return;rot=(rot+(+btn.dataset.r)+4)%4;});
+document.getElementById("frame").addEventListener("click",e=>{const btn=e.target.closest("button");if(!btn)return;
+  document.querySelectorAll("#frame button").forEach(b=>b.classList.remove("on"));btn.classList.add("on");windowMonths=+btn.dataset.m;applyWindow();showPanel(null);});
 window.addEventListener("resize",resize);
 
 /* boot */
-people=(await loadCity(viewer)).slice(0,MAX_CITY);
+allPeople=(await loadCity(viewer)).slice(0,MAX_CITY);
 if(viewer)document.getElementById("mode-badge").textContent="live";
-refresh();resize();showPanel(null);requestAnimationFrame(loop);
+applyWindow();resize();showPanel(null);requestAnimationFrame(loop);
 })();
 </script>
 </body>
