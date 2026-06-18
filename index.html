@@ -42,27 +42,81 @@
 
 <script>
 (async function(){
-/* 1. FARCASTER (robust: demo mode if SDK can't load) */
+/* 1. FARCASTER (demo mode if SDK can't load) */
 let sdk=null, viewer=null;
 try { const mod = await import('https://esm.sh/@farcaster/miniapp-sdk'); sdk = mod.sdk; } catch(e){}
 if (sdk) { try { const cx = await sdk.context; viewer = cx?.user ?? null; await sdk.actions.ready(); } catch(e){} }
 
-/* 2. DATA — STEP 2 changes only this. Returns per person:
-   {handle, fid, inbound:{replies,likes,recasts,mentions}, outbound:{...}, lastActiveMinutes} */
+/* 2. DATA — STEP 2 changes only this. */
 async function loadCity(viewer){
-  const demo=[["dwr",[22,70,12,5],[18,40,8,3],8],["v",[19,55,10,4],[15,35,7,2],19],
-    ["jessepollak",[16,48,14,2],[14,38,9,3],3],["linda",[14,40,6,3],[12,30,5,2],52],
-    ["ted",[11,33,5,2],[10,24,4,2],27],["woj",[9,28,4,1],[8,20,3,1],95],
-    ["antimo",[8,22,3,2],[6,16,2,2],14],["limone",[6,18,4,1],[5,12,3,1],140],
-    ["deodad",[5,14,2,1],[4,10,1,1],40],["kugusha",[4,11,2,0],[3,8,1,1],310],
-    ["jacek",[3,8,1,1],[2,6,1,0],22],["ace",[2,6,1,0],[2,4,1,0],600],
-    ["cassie",[2,5,1,0],[1,3,1,0],11],["mert",[2,4,1,0],[1,3,0,0],75],
-    ["phil",[1,4,0,1],[1,2,0,0],180],["nat",[1,3,1,0],[1,2,0,0],33],
-    ["yb",[1,3,0,0],[0,2,0,0],420],["sds",[1,2,1,0],[0,1,0,0],9],
-    ["july",[1,2,0,0],[0,1,0,0],260],["proxy",[0,2,0,1],[0,1,0,0],50],
-    ["greg",[0,1,1,0],[0,1,0,0],500],["zach",[0,1,0,0],[0,1,0,0],17]];
-  const KK=["replies","likes","recasts","mentions"], obj=a=>Object.fromEntries(KK.map((k,i)=>[k,a[i]]));
-  return demo.map(([h,i,o,lm])=>({handle:h,fid:null,inbound:obj(i),outbound:obj(o),lastActiveMinutes:lm}));
+  const NODE="https://hypersnap.x-3.lol";
+  const MY_FID=viewer?.fid || 310953;          /* <-- your FID for testing outside Farcaster */
+  const FC_EPOCH=1609459200, nowS=Date.now()/1000;
+  const badge=document.getElementById("mode-badge");
+
+  function DEMO(){
+    const demo=[["dwr",[22,70,12,5],[18,40,8,3],8],["v",[19,55,10,4],[15,35,7,2],19],
+      ["jessepollak",[16,48,14,2],[14,38,9,3],3],["linda",[14,40,6,3],[12,30,5,2],52],
+      ["ted",[11,33,5,2],[10,24,4,2],27],["woj",[9,28,4,1],[8,20,3,1],95],
+      ["antimo",[8,22,3,2],[6,16,2,2],14],["limone",[6,18,4,1],[5,12,3,1],140],
+      ["deodad",[5,14,2,1],[4,10,1,1],40],["kugusha",[4,11,2,0],[3,8,1,1],310],
+      ["jacek",[3,8,1,1],[2,6,1,0],22],["ace",[2,6,1,0],[2,4,1,0],600],
+      ["cassie",[2,5,1,0],[1,3,1,0],11],["mert",[2,4,1,0],[1,3,0,0],75],
+      ["phil",[1,4,0,1],[1,2,0,0],180],["nat",[1,3,1,0],[1,2,0,0],33],
+      ["yb",[1,3,0,0],[0,2,0,0],420],["sds",[1,2,1,0],[0,1,0,0],9],
+      ["july",[1,2,0,0],[0,1,0,0],260],["proxy",[0,2,0,1],[0,1,0,0],50],
+      ["greg",[0,1,1,0],[0,1,0,0],500],["zach",[0,1,0,0],[0,1,0,0],17]];
+    const KK=["replies","likes","recasts","mentions"],obj=a=>Object.fromEntries(KK.map((k,i)=>[k,a[i]]));
+    return demo.map(([h,i,o,lm])=>({handle:h,fid:null,inbound:obj(i),outbound:obj(o),lastActiveMinutes:lm}));
+  }
+
+  async function pages(path,cap){let out=[],tok="",n=0;
+    do{const u=`${NODE}${path}&pageSize=200${tok?`&pageToken=${tok}`:""}`;
+      const r=await fetch(u);if(!r.ok)throw new Error(`${r.status} on ${path}`);
+      const j=await r.json();out=out.concat(j.messages||[]);tok=j.nextPageToken||"";n++;
+    }while(tok&&out.length<cap&&n<6);return out;}
+  async function tryPages(path,cap){try{return await pages(path,cap);}catch(e){console.warn("[farcity] skipped",path,"—",e.message);return [];}}
+
+  try{
+    const map=new Map();
+    const ent=f=>{if(!map.has(f))map.set(f,{inbound:{replies:0,likes:0,recasts:0,mentions:0},outbound:{replies:0,likes:0,recasts:0,mentions:0},last:0});return map.get(f);};
+    const touch=(e,ts)=>{const m=ts+FC_EPOCH;if(m>e.last)e.last=m;};
+
+    /* OUTBOUND: your casts (replies to + mentions) */
+    for(const m of await tryPages(`/v1/castsByFid?fid=${MY_FID}&reverse=true`,600)){
+      const b=m.data?.castAddBody;if(!b)continue;const ts=m.data.timestamp||0;
+      if(b.parentCastId?.fid&&b.parentCastId.fid!==MY_FID){const e=ent(b.parentCastId.fid);e.outbound.replies++;touch(e,ts);}
+      for(const mf of (b.mentions||[]))if(mf!==MY_FID){const e=ent(mf);e.outbound.mentions++;touch(e,ts);}
+    }
+    /* OUTBOUND: your reactions (likes + recasts) — reactionsByFid needs a reaction_type */
+    for(const [rt,key] of [["REACTION_TYPE_LIKE","likes"],["REACTION_TYPE_RECAST","recasts"]]){
+      for(const m of await tryPages(`/v1/reactionsByFid?fid=${MY_FID}&reaction_type=${rt}&reverse=true`,600)){
+        const b=m.data?.reactionBody,tf=b?.targetCastId?.fid;if(!tf||tf===MY_FID)continue;
+        const e=ent(tf);e.outbound[key]++;touch(e,m.data.timestamp||0);
+      }
+    }
+
+    const wt=o=>o.replies*3+o.recasts*2+o.mentions*2+o.likes;
+    let arr=[...map.entries()].map(([fid,v])=>({fid,handle:"fid:"+fid,inbound:v.inbound,outbound:v.outbound,
+      lastActiveMinutes:v.last?Math.max(0,Math.round((nowS-v.last)/60)):9999}))
+      .filter(p=>wt(p.outbound)>0)
+      .sort((a,b)=>wt(b.outbound)-wt(a.outbound)).slice(0,40);
+    if(!arr.length)throw new Error("no interactions found");
+
+    /* resolve @handles for the top fids */
+    await Promise.all(arr.map(async p=>{try{
+      const r=await fetch(`${NODE}/v1/userDataByFid?fid=${p.fid}`);if(!r.ok)return;const j=await r.json();
+      for(const m of (j.messages||[])){const u=m.data?.userDataBody;
+        if(u&&(u.type==="USER_DATA_TYPE_USERNAME"||u.type===6)&&u.value)p.handle=u.value;}
+    }catch(e){}}));
+
+    if(badge)badge.textContent="live · node";
+    return arr;
+  }catch(err){
+    console.warn("[farcity] node fetch failed, using demo data:",err.message);
+    if(badge)badge.textContent="demo (node error)";
+    return DEMO();
+  }
 }
 
 /* 3. SCORING + LIGHTING */
@@ -111,7 +165,6 @@ const youSet=new Set(youCells.map(c=>c[0]+","+c[1]));
 const YMINX=Math.min(...youCells.map(c=>c[0])),YMAXX=Math.max(...youCells.map(c=>c[0])),
       YMINY=Math.min(...youCells.map(c=>c[1])),YMAXY=Math.max(...youCells.map(c=>c[1]));
 const YCX=(YMINX+YMAXX)/2, YCY=(YMINY+YMAXY)/2;
-/* little roads spoking into you + a small plaza ring of open ground around it */
 const carve=new Set();
 function carveDir(sx,sy,dx,dy){let x=sx,y=sy;for(let step=0;step<4;step++){
   if(!inArea(x,y)||isRoad(x,y))break; carve.add(x+","+y);plotSet.delete(x+","+y); x+=dx;y+=dy;}}
@@ -122,11 +175,10 @@ for(let x=YMINX-1;x<=YMAXX+1;x++)for(let y=YMINY-1;y<=YMAXY+1;y++){const k=x+","
   if(!inArea(x,y)||youSet.has(k)||carve.has(k))continue; if(plotSet.has(k))plaza.add(k);}
 const avail=plots.filter(c=>plotSet.has(c[0]+","+c[1])&&!youSet.has(c[0]+","+c[1])&&!plaza.has(c[0]+","+c[1]));
 
-/* placement: city grows OUTWARD from you (compact core); high tiers get a plaza */
 let feats=[];
 function assign(){
   const mv=Math.max(1,...people.map(score));
-  const order=[...people.keys()].sort((a,b)=>(((a*73+11)&255)-((b*73+11)&255)));   // decoupled from score
+  const order=[...people.keys()].sort((a,b)=>(((a*73+11)&255)-((b*73+11)&255)));
   const cells=[...avail].sort((a,b)=>(((a[0]-YCX)**2+(a[1]-YCY)**2)-((b[0]-YCX)**2+(b[1]-YCY)**2)));
   const blocked=new Set(),placed=new Set();let ci=0;
   people.forEach(p=>p.cell=null);
@@ -140,7 +192,6 @@ function assign(){
     const r=(c[0]*31+c[1]*17)&7,w=(c[0]*13+c[1]*29)&31;
     if(r===0)feats.push([c,"tree"]);else if(w===0&&wc<2){feats.push([c,"water"]);wc++;}});}
 
-/* 90° turntable: rotate grid coords before projecting */
 function rotc(gx,gy){switch(((rot%4)+4)%4){case 1:return[gy,-gx];case 2:return[-gx,-gy];case 3:return[-gy,gx];}return[gx,gy];}
 const baseO=()=>({x:CW/2,y:CH*0.42});
 const origin=()=>({x:baseO().x+off.x,y:baseO().y+off.y});
@@ -200,8 +251,8 @@ function drawYouBlock(){const c=iso(YCX,YCY),hw=TW*zoom,hh=TH*zoom,H=28*zoom,hl=
   ctx.fillStyle=sh(PLUM,hl?1.0:0.82);ctx.fill();
   ctx.beginPath();ctx.moveTo(tp.t.x,tp.t.y);ctx.lineTo(tp.r.x,tp.r.y);ctx.lineTo(tp.b.x,tp.b.y);ctx.lineTo(tp.l.x,tp.l.y);ctx.closePath();
   ctx.fillStyle=sh(PLUM,hl?1.28:1.06);ctx.fill();ctx.strokeStyle="rgba(255,255,255,0.16)";ctx.lineWidth=1;ctx.stroke();}
-function drawYouMarker(label){const c=iso(YCX,YCY),t=performance.now()*0.001,hl=sel===-1;
-  const cy=c.y-TH*zoom-28*zoom-20*zoom+Math.sin(t*2)*4*zoom;   // float just above the slab roof
+function drawYouMarker(){const c=iso(YCX,YCY),t=performance.now()*0.001,hl=sel===-1;
+  const cy=c.y-TH*zoom-28*zoom-20*zoom+Math.sin(t*2)*4*zoom;
   const w=9*zoom*(0.82+0.18*Math.sin(t*3)), topH=16*zoom, botH=10*zoom;
   ctx.save();ctx.globalAlpha=0.22;ctx.fillStyle="#9dff9d";ctx.beginPath();ctx.ellipse(c.x,cy,w*1.7,topH*0.95,0,0,7);ctx.fill();ctx.restore();
   ctx.beginPath();ctx.moveTo(c.x,cy-topH);ctx.lineTo(c.x+w,cy);ctx.lineTo(c.x,cy+botH);ctx.closePath();ctx.fillStyle=hl?"#aaffb4":"#7CFC8A";ctx.fill();
@@ -209,8 +260,7 @@ function drawYouMarker(label){const c=iso(YCX,YCY),t=performance.now()*0.001,hl=
   ctx.strokeStyle="rgba(255,255,255,0.4)";ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(c.x,cy-topH);ctx.lineTo(c.x,cy+botH);ctx.stroke();
   hit.push({id:-1,x:c.x-TW*zoom,y:cy-topH-14*zoom,w:TW*zoom*2,h:(c.y+TH*zoom)-(cy-topH-14*zoom)});}
 
-/* reaction icons that ferry to-and-fro between each building and you */
-const roadNeighbors=(gx,gy)=>DIRS.filter(([dx,dy])=>isRoad(gx+dx,gy+dy));
+/* reaction icons that flow to-and-fro between buildings and you */
 let lanes=[];const particles=[];let spawnTimer=0;
 function buildLanes(){
   lanes=[];particles.length=0;spawnTimer=0;
@@ -231,7 +281,6 @@ function buildLanes(){
     while(cur&&guard++<400){chain.push([cur[0],cur[1]]);cur=parent.get(kkey(cur[0],cur[1]));}
     const cells=[[p.cell[0],p.cell[1]],...chain,[YCX,YCY]];
     if(cells.length>=2)lanes.push({idx,cells,L:cells.length-1});});}
-
 function dirScore(p,which){const b=which==="in"?p.inbound:p.outbound;
   return b.replies*W.replies+b.recasts*W.recasts+b.mentions*W.mentions+b.likes*W.likes;}
 function pickType(counts){let tot=0;K.forEach(k=>tot+=counts[k]);if(tot<=0)return"likes";
@@ -272,7 +321,7 @@ function drawCity(){hit=[];sky();
   items.push({kind:"you",depth:depth(YCX,YCY)});
   particles.forEach(q=>{const g=partGrid(q);items.push({kind:"m",q,depth:depth(g[0],g[1])});});
   items.sort((a,b)=>a.depth-b.depth);
-  const youName=viewer?.username?"@"+viewer.username:"you",gs=Math.min(1.3,Math.max(0.75,zoom));
+  const gs=Math.min(1.3,Math.max(0.75,zoom));
   items.forEach(o=>{
     if(o.kind==="tree")tree(o.gx,o.gy);
     else if(o.kind==="water")water(o.gx,o.gy);
@@ -281,7 +330,7 @@ function drawCity(){hit=[];sky();
     else{const g=partGrid(o.q),p=iso(g[0],g[1]),a=partAlpha(o.q);
       ctx.save();ctx.globalAlpha=0.18*a;ctx.fillStyle="#000";ctx.beginPath();ctx.ellipse(p.x,p.y+3*zoom,5*zoom,2.2*zoom,0,0,7);ctx.fill();ctx.restore();
       glyph(o.q.type,p.x,p.y-3*zoom,0.95*a,gs);}});
-  drawYouMarker(youName);}
+  drawYouMarker();}
 
 let last=performance.now();
 function loop(now){const dt=Math.min(0.05,(now-last)/1000);last=now;
@@ -291,8 +340,8 @@ function resize(){dpr=window.devicePixelRatio||1;CW=cv.clientWidth||680;CH=cv.cl
 function refresh(){assign();buildLanes();}
 
 function showPanel(id){
-  if(id===-1){panel.innerHTML='<b>you</b> · the factory at the center — the whole city is a to-and-fro of you.';return;}
-  if(id===null||id===undefined||id<0){panel.textContent="reactions ferry to & from you · bright building = active recently · drag, scroll, turn, tap";return;}
+  if(id===-1){panel.innerHTML='<b>you</b> · the whole city is a give-and-take of you.';return;}
+  if(id===null||id===undefined||id<0){panel.textContent="reactions flow in & out of you · bright = active recently · drag, scroll, turn, tap";return;}
   const p=people[id],b=bucket(p),act=p.lastActiveMinutes<30;
   panel.innerHTML=`<b>@${p.handle}</b> · <span style="color:${act?'#8fd4b8':'#8479ad'}">${act?'active':'last seen'} ${ago(p.lastActiveMinutes)}</span> · `+
     `${b.replies} replies, ${b.likes} likes, ${b.recasts} recasts, ${b.mentions} mentions`;}
