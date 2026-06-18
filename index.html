@@ -207,7 +207,6 @@ function drawYouMarker(label){const c=iso(YCX,YCY),t=performance.now()*0.001,hl=
   ctx.beginPath();ctx.moveTo(c.x,cy-topH);ctx.lineTo(c.x+w,cy);ctx.lineTo(c.x,cy+botH);ctx.closePath();ctx.fillStyle=hl?"#aaffb4":"#7CFC8A";ctx.fill();
   ctx.beginPath();ctx.moveTo(c.x,cy-topH);ctx.lineTo(c.x-w,cy);ctx.lineTo(c.x,cy+botH);ctx.closePath();ctx.fillStyle=hl?"#5fd873":"#46c85a";ctx.fill();
   ctx.strokeStyle="rgba(255,255,255,0.4)";ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(c.x,cy-topH);ctx.lineTo(c.x,cy+botH);ctx.stroke();
-  ctx.fillStyle="#eafff0";ctx.font=`600 ${Math.round(13*zoom)+2}px sans-serif`;ctx.textAlign="center";ctx.fillText(label,c.x,cy-topH-8*zoom);
   hit.push({id:-1,x:c.x-TW*zoom,y:cy-topH-14*zoom,w:TW*zoom*2,h:(c.y+TH*zoom)-(cy-topH-14*zoom)});}
 
 /* reaction icons that ferry to-and-fro between each building and you */
