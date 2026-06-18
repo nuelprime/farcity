@@ -1,8 +1,8 @@
 {
   "accountAssociation": {
-    "header": "PASTE_FROM_FARCASTER_TOOL",
-    "payload": "PASTE_FROM_FARCASTER_TOOL",
-    "signature": "PASTE_FROM_FARCASTER_TOOL"
+    "header": "eyJmaWQiOjMxMDk1MywidHlwZSI6ImN1c3RvZHkiLCJrZXkiOiIweEU3NkYwOEJDN0JhY0ZDZmZlMGQyMzY2QThhODBjZkMyMzU2QzFkNjkifQ",
+    "payload": "eyJkb21haW4iOiJmYXJjYXN0YWR0LnZlcmNlbC5hcHAifQ",
+    "signature": "hjabc/76PRNUxhH9KV0XBvz06xHeGZtIbawt7EhaXtI0W5vqO5Nm+/Cn14RUkpC8xQoJwWUcZ8JpaiW6YDw5WRw="
   },
   "miniapp": {
     "version": "1",
