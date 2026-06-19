@@ -82,17 +82,21 @@ async function loadCity(viewer){
     return demo.map(([h,i,o,lm])=>({handle:h,fid:null,inbound:obj(i),outbound:obj(o),lastActiveMinutes:lm}));
   }
 
+  function fetchT(url,ms){const c=new AbortController(),t=setTimeout(()=>c.abort(),ms||8000);
+    return fetch(url,{signal:c.signal}).finally(()=>clearTimeout(t));}
   async function pages(path,cap){let out=[],tok="",n=0;
     do{const u=`${NODE}${path}&pageSize=200${tok?`&pageToken=${tok}`:""}`;
-      const r=await fetch(u);if(!r.ok)throw new Error(`${r.status} on ${path}`);
+      const r=await fetchT(u);if(!r.ok)throw new Error(`${r.status} on ${path}`);
       const j=await r.json();out=out.concat(j.messages||[]);tok=j.nextPageToken||"";n++;
     }while(tok&&out.length<cap&&n<6);return out;}
   async function tryPages(path,cap){try{return await pages(path,cap);}catch(e){console.warn("[farcity] skipped",path,"—",e.message);return [];}}
-  // reactionsBy* need a reaction_type whose accepted format varies by node — try known forms, use the first that answers
+  // reactionsBy* need a reaction_type whose accepted format varies by node; formats aligned by index
   const RTYPES=[["likes",["REACTION_TYPE_LIKE","1","Like"]],["recasts",["REACTION_TYPE_RECAST","2","Recast"]]];
+  let rtIdx=-1; // remembered working format index, so we don't re-probe every call
   async function reactPages(base,variants,cap){
-    for(const v of variants){try{return await pages(`${base}&reaction_type=${v}`,cap);}catch(e){}}
-    console.warn("[farcity] reactions unavailable for",base);return [];}
+    const order=rtIdx>=0?[rtIdx,...[0,1,2].filter(i=>i!==rtIdx)]:[0,1,2];
+    for(const i of order){try{const r=await pages(`${base}&reaction_type=${variants[i]}`,cap);rtIdx=i;return r;}catch(e){}}
+    return [];}
 
   try{
     const map=new Map();
@@ -137,12 +141,12 @@ async function loadCity(viewer){
 
     /* for the top fids: resolve @handle + their REAL last activity (timestamp of their latest cast) */
     await Promise.all(arr.map(async p=>{
-      try{const r=await fetch(`${NODE}/v1/userDataByFid?fid=${p.fid}`);if(r.ok){const j=await r.json();
+      try{const r=await fetchT(`${NODE}/v1/userDataByFid?fid=${p.fid}`);if(r.ok){const j=await r.json();
         for(const m of (j.messages||[])){const u=m.data?.userDataBody;
           if(u&&(u.type==="USER_DATA_TYPE_USERNAME"||u.type===6)&&u.value)p.handle=u.value;
           if(u&&(u.type==="USER_DATA_TYPE_PFP"||u.type===1)&&u.value)p.pfp=u.value;}}
       }catch(e){}
-      try{const r=await fetch(`${NODE}/v1/castsByFid?fid=${p.fid}&reverse=true&pageSize=1`);if(r.ok){const j=await r.json();
+      try{const r=await fetchT(`${NODE}/v1/castsByFid?fid=${p.fid}&reverse=true&pageSize=1`);if(r.ok){const j=await r.json();
         const t=j.messages?.[0]?.data?.timestamp;if(t)p.lastActiveMinutes=Math.max(0,Math.round((nowS-(t+FC_EPOCH))/60));}
       }catch(e){}
     }));
