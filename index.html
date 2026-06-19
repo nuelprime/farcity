@@ -419,16 +419,33 @@ function showPanel(id){
   const link=panel.querySelector(".hlink"); if(link)link.onclick=()=>openProfile(p.fid,p.handle);}
 function pick(mx,my){for(let k=hit.length-1;k>=0;k--){const b=hit[k];if(mx>=b.x&&mx<=b.x+b.w&&my>=b.y&&my<=b.y+b.h)return b.id;}return null;}
 
-let dragging=false,moved=false,start={x:0,y:0};
-cv.addEventListener("pointerdown",e=>{dragging=true;moved=false;start={x:e.clientX,y:e.clientY};dragBase={x:off.x,y:off.y};cv.setPointerCapture(e.pointerId);cv.style.cursor="grabbing";});
-cv.addEventListener("pointermove",e=>{const r=cv.getBoundingClientRect();
-  if(dragging){const dx=e.clientX-start.x,dy=e.clientY-start.y;if(Math.abs(dx)+Math.abs(dy)>4)moved=true;off={x:dragBase.x+dx,y:dragBase.y+dy};}
-  else{const id=pick(e.clientX-r.left,e.clientY-r.top);if(id!==hov){hov=(id!==null&&id>=0)?id:null;cv.style.cursor=(id!==null)?"pointer":"grab";}}});
-cv.addEventListener("pointerup",e=>{dragging=false;cv.style.cursor="grab";
-  if(!moved){const r=cv.getBoundingClientRect();const id=pick(e.clientX-r.left,e.clientY-r.top);sel=(id!==null)?id:null;showPanel(sel);}});
-cv.addEventListener("wheel",e=>{e.preventDefault();const r=cv.getBoundingClientRect(),S={x:e.clientX-r.left,y:e.clientY-r.top};
-  const o=origin(),nz=Math.max(0.45,Math.min(2.2,zoom*(e.deltaY<0?1.08:0.926))),k=nz/zoom;
-  off={x:(S.x-(S.x-o.x)*k)-baseO().x,y:(S.y-(S.y-o.y)*k)-baseO().y};zoom=nz;},{passive:false});
+let moved=false;const pointers=new Map();let panStart=null,pinch=null;
+function zoomAbout(S,nz){const o=origin(),k=nz/zoom;off={x:(S.x-(S.x-o.x)*k)-baseO().x,y:(S.y-(S.y-o.y)*k)-baseO().y};zoom=nz;}
+cv.addEventListener("pointerdown",e=>{cv.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});moved=false;
+  if(pointers.size===1){panStart={x:e.clientX,y:e.clientY,ox:off.x,oy:off.y};pinch=null;cv.style.cursor="grabbing";}
+  else if(pointers.size===2){const v=[...pointers.values()];pinch={dist:Math.hypot(v[1].x-v[0].x,v[1].y-v[0].y),mid:{x:(v[0].x+v[1].x)/2,y:(v[0].y+v[1].y)/2}};panStart=null;}});
+cv.addEventListener("pointermove",e=>{
+  if(!pointers.has(e.pointerId)){const r=cv.getBoundingClientRect(),id=pick(e.clientX-r.left,e.clientY-r.top);
+    if(id!==hov){hov=(id!==null&&id>=0)?id:null;cv.style.cursor=(id!==null)?"pointer":"grab";}return;}
+  e.preventDefault();pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(pointers.size>=2&&pinch){const v=[...pointers.values()],p1=v[0],p2=v[1],r=cv.getBoundingClientRect();
+    const dist=Math.hypot(p2.x-p1.x,p2.y-p1.y),mid={x:(p1.x+p2.x)/2,y:(p1.y+p2.y)/2};
+    off.x+=mid.x-pinch.mid.x;off.y+=mid.y-pinch.mid.y;
+    zoomAbout({x:mid.x-r.left,y:mid.y-r.top},Math.max(0.45,Math.min(2.2,zoom*(dist/pinch.dist))));
+    pinch={dist,mid};moved=true;}
+  else if(pointers.size===1&&panStart){const v=[...pointers.values()][0],dx=v.x-panStart.x,dy=v.y-panStart.y;
+    if(Math.abs(dx)+Math.abs(dy)>4)moved=true;off={x:panStart.ox+dx,y:panStart.oy+dy};}
+},{passive:false});
+function endPointer(e){const wasMoved=moved;pointers.delete(e.pointerId);
+  if(pointers.size===0){cv.style.cursor="grab";
+    if(!wasMoved){const r=cv.getBoundingClientRect(),id=pick(e.clientX-r.left,e.clientY-r.top);sel=(id!==null)?id:null;showPanel(sel);}
+    panStart=null;pinch=null;}
+  else if(pointers.size===1){const v=[...pointers.values()][0];panStart={x:v.x,y:v.y,ox:off.x,oy:off.y};pinch=null;}}
+cv.addEventListener("pointerup",endPointer);
+cv.addEventListener("pointercancel",e=>{pointers.delete(e.pointerId);if(pointers.size<2)pinch=null;if(pointers.size===0)panStart=null;});
+cv.addEventListener("wheel",e=>{e.preventDefault();const r=cv.getBoundingClientRect();
+  zoomAbout({x:e.clientX-r.left,y:e.clientY-r.top},Math.max(0.45,Math.min(2.2,zoom*(e.deltaY<0?1.08:0.926))));},{passive:false});
 document.getElementById("scope").addEventListener("click",e=>{const btn=e.target.closest("button");if(!btn)return;
   document.querySelectorAll("#scope button").forEach(b=>b.classList.remove("on"));btn.classList.add("on");scope=btn.dataset.s;sel=null;refresh();showPanel(null);});
 document.getElementById("rot").addEventListener("click",e=>{const btn=e.target.closest("button");if(!btn)return;rot=(rot+(+btn.dataset.r)+4)%4;});
