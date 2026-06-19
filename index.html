@@ -50,7 +50,10 @@
 /* 1. FARCASTER (demo mode if SDK can't load) */
 let sdk=null, viewer=null;
 try { const mod = await import('https://esm.sh/@farcaster/miniapp-sdk'); sdk = mod.sdk; } catch(e){}
-if (sdk) { try { const cx = await sdk.context; viewer = cx?.user ?? null; await sdk.actions.ready(); } catch(e){} }
+if (sdk) {
+  try { const cx = await Promise.race([sdk.context, new Promise(r=>setTimeout(()=>r(null),4000))]); viewer = cx?.user ?? null; } catch(e){}
+  try { await Promise.race([sdk.actions.ready(), new Promise(r=>setTimeout(r,3000))]); } catch(e){}
+}
 
 /* 2. DATA — STEP 2 changes only this. */
 /* Bots/accounts to keep out of everyone's city. Add FIDs and/or @handles (lowercase, no @). */
@@ -145,7 +148,7 @@ async function loadCity(viewer){
     }));
     arr=arr.filter(p=>!BANNED_HANDLES.has((p.handle||"").toLowerCase())).slice(0,40);
 
-    if(badge)badge.textContent="live · node";
+    if(badge)badge.textContent="live";
     return arr;
   }catch(err){
     console.warn("[farcity] node fetch failed, using demo data:",err.message);
