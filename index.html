@@ -82,7 +82,7 @@ async function loadCity(viewer){
     return demo.map(([h,i,o,lm])=>({handle:h,fid:null,inbound:obj(i),outbound:obj(o),lastActiveMinutes:lm}));
   }
 
-  function fetchT(url,ms){const c=new AbortController(),t=setTimeout(()=>c.abort(),ms||8000);
+  function fetchT(url,ms){const c=new AbortController(),t=setTimeout(()=>c.abort(),ms||12000);
     return fetch(url,{signal:c.signal}).finally(()=>clearTimeout(t));}
   async function pages(path,cap){let out=[],tok="",n=0;
     do{const u=`${NODE}${path}&pageSize=200${tok?`&pageToken=${tok}`:""}`;
@@ -97,6 +97,9 @@ async function loadCity(viewer){
     const order=rtIdx>=0?[rtIdx,...[0,1,2].filter(i=>i!==rtIdx)]:[0,1,2];
     for(const i of order){try{const r=await pages(`${base}&reaction_type=${variants[i]}`,cap);rtIdx=i;return r;}catch(e){}}
     return [];}
+  async function mapLimit(items,n,fn){let i=0;
+    const run=async()=>{while(i<items.length){const k=i++;try{await fn(items[k],k);}catch(e){}}};
+    await Promise.all(Array.from({length:Math.min(n,items.length)},run));}
 
   try{
     const map=new Map();
@@ -119,18 +122,17 @@ async function loadCity(viewer){
       }
     }
 
-    /* INBOUND: who engages YOU — replies + reactions on your recent casts, and mentions of you (run in parallel) */
-    const recent=myHashes.slice(0,20),jobs=[];
-    for(const hash of recent){
-      jobs.push(tryPages(`/v1/castsByParent?fid=${MY_FID}&hash=${hash}`,200).then(ms=>{
-        for(const m of ms){const af=m.data?.fid;if(!af||af===MY_FID)continue;const e=ent(af);e.inbound.replies++;touch(e,m.data.timestamp||0);}}));
+    /* INBOUND: who engages YOU — replies + reactions on your recent casts, and mentions of you */
+    const recent=myHashes.slice(0,10);
+    await mapLimit(recent,4,async(hash)=>{
+      for(const m of await tryPages(`/v1/castsByParent?fid=${MY_FID}&hash=${hash}`,200)){
+        const af=m.data?.fid;if(!af||af===MY_FID)continue;const e=ent(af);e.inbound.replies++;touch(e,m.data.timestamp||0);}
       for(const [key,variants] of RTYPES)
-        jobs.push(reactPages(`/v1/reactionsByCast?target_fid=${MY_FID}&target_hash=${hash}`,variants,300).then(ms=>{
-          for(const m of ms){const rf=m.data?.fid;if(!rf||rf===MY_FID)continue;const e=ent(rf);e.inbound[key]++;touch(e,m.data.timestamp||0);}}));
-    }
-    jobs.push(tryPages(`/v1/castsByMention?fid=${MY_FID}&reverse=true`,400).then(ms=>{
-      for(const m of ms){const af=m.data?.fid;if(!af||af===MY_FID)continue;const e=ent(af);e.inbound.mentions++;touch(e,m.data.timestamp||0);}}));
-    await Promise.all(jobs);
+        for(const m of await reactPages(`/v1/reactionsByCast?target_fid=${MY_FID}&target_hash=${hash}`,variants,300)){
+          const rf=m.data?.fid;if(!rf||rf===MY_FID)continue;const e=ent(rf);e.inbound[key]++;touch(e,m.data.timestamp||0);}
+    });
+    for(const m of await tryPages(`/v1/castsByMention?fid=${MY_FID}&reverse=true`,400)){
+      const af=m.data?.fid;if(!af||af===MY_FID)continue;const e=ent(af);e.inbound.mentions++;touch(e,m.data.timestamp||0);}
 
     const sc=b=>b.replies*3+b.recasts*2+b.mentions*2+b.likes, wt=v=>sc(v.inbound)+sc(v.outbound);
     let arr=[...map.entries()].map(([fid,v])=>({fid,handle:"fid:"+fid,inbound:v.inbound,outbound:v.outbound,
@@ -139,17 +141,17 @@ async function loadCity(viewer){
       .sort((a,b)=>wt(map.get(b.fid))-wt(map.get(a.fid))).slice(0,44);
     if(!arr.length)throw new Error("no interactions found");
 
-    /* for the top fids: resolve @handle + their REAL last activity (timestamp of their latest cast) */
-    await Promise.all(arr.map(async p=>{
+    /* resolve @handle + pfp for everyone (bounded); accurate last-seen only for the top towers */
+    await mapLimit(arr,6,async(p,k)=>{
       try{const r=await fetchT(`${NODE}/v1/userDataByFid?fid=${p.fid}`);if(r.ok){const j=await r.json();
         for(const m of (j.messages||[])){const u=m.data?.userDataBody;
           if(u&&(u.type==="USER_DATA_TYPE_USERNAME"||u.type===6)&&u.value)p.handle=u.value;
           if(u&&(u.type==="USER_DATA_TYPE_PFP"||u.type===1)&&u.value)p.pfp=u.value;}}
       }catch(e){}
-      try{const r=await fetchT(`${NODE}/v1/castsByFid?fid=${p.fid}&reverse=true&pageSize=1`);if(r.ok){const j=await r.json();
+      if(k<12){try{const r=await fetchT(`${NODE}/v1/castsByFid?fid=${p.fid}&reverse=true&pageSize=1`);if(r.ok){const j=await r.json();
         const t=j.messages?.[0]?.data?.timestamp;if(t)p.lastActiveMinutes=Math.max(0,Math.round((nowS-(t+FC_EPOCH))/60));}
-      }catch(e){}
-    }));
+      }catch(e){}}
+    });
     arr=arr.filter(p=>!BANNED_HANDLES.has((p.handle||"").toLowerCase())).slice(0,40);
 
     if(badge)badge.textContent="live";
