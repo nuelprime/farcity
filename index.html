@@ -31,7 +31,7 @@
 </head>
 <body>
 <div id="app">
-  <header><h1>your city</h1><span class="badge" id="mode-badge">demo data</span></header>
+  <header><h1>your city</h1><span class="badge" id="mode-badge">loading&#8230;</span></header>
   <div class="controls">
     <div class="seg" id="scope">
       <button data-s="mutual" class="on">mutual</button>
@@ -55,7 +55,8 @@ if (sdk) { try { const cx = await sdk.context; viewer = cx?.user ?? null; await 
 /* 2. DATA — STEP 2 changes only this. */
 async function loadCity(viewer){
   const NODE="https://hypersnap.x-3.lol";
-  const MY_FID=viewer?.fid || 310953;          /* <-- your FID for testing outside Farcaster */
+  const urlFid=new URLSearchParams(location.search).get("fid");
+  const MY_FID=viewer?.fid || (urlFid?Number(urlFid):0) || 310953;   /* in Farcaster = the viewer; ?fid=N for testing; else default */
   const FC_EPOCH=1609459200, nowS=Date.now()/1000;
   const badge=document.getElementById("mode-badge");
 
@@ -81,6 +82,11 @@ async function loadCity(viewer){
       const j=await r.json();out=out.concat(j.messages||[]);tok=j.nextPageToken||"";n++;
     }while(tok&&out.length<cap&&n<6);return out;}
   async function tryPages(path,cap){try{return await pages(path,cap);}catch(e){console.warn("[farcity] skipped",path,"—",e.message);return [];}}
+  // reactionsBy* need a reaction_type whose accepted format varies by node — try known forms, use the first that answers
+  const RTYPES=[["likes",["REACTION_TYPE_LIKE","1","Like"]],["recasts",["REACTION_TYPE_RECAST","2","Recast"]]];
+  async function reactPages(base,variants,cap){
+    for(const v of variants){try{return await pages(`${base}&reaction_type=${v}`,cap);}catch(e){}}
+    console.warn("[farcity] reactions unavailable for",base);return [];}
 
   try{
     const map=new Map();
@@ -95,9 +101,9 @@ async function loadCity(viewer){
       for(const mf of (b.mentions||[]))if(mf!==MY_FID){const e=ent(mf);e.outbound.mentions++;touch(e,ts);}
       if(m.hash)myHashes.push(m.hash);
     }
-    /* OUTBOUND: your reactions (likes + recasts) — reactionsByFid needs a reaction_type */
-    for(const [rt,key] of [["REACTION_TYPE_LIKE","likes"],["REACTION_TYPE_RECAST","recasts"]]){
-      for(const m of await tryPages(`/v1/reactionsByFid?fid=${MY_FID}&reaction_type=${rt}&reverse=true`,600)){
+    /* OUTBOUND: your reactions (likes + recasts) */
+    for(const [key,variants] of RTYPES){
+      for(const m of await reactPages(`/v1/reactionsByFid?fid=${MY_FID}&reverse=true`,variants,600)){
         const b=m.data?.reactionBody,tf=b?.targetCastId?.fid;if(!tf||tf===MY_FID)continue;
         const e=ent(tf);e.outbound[key]++;touch(e,m.data.timestamp||0);
       }
@@ -108,8 +114,8 @@ async function loadCity(viewer){
     for(const hash of recent){
       jobs.push(tryPages(`/v1/castsByParent?fid=${MY_FID}&hash=${hash}`,200).then(ms=>{
         for(const m of ms){const af=m.data?.fid;if(!af||af===MY_FID)continue;const e=ent(af);e.inbound.replies++;touch(e,m.data.timestamp||0);}}));
-      for(const [rt,key] of [["REACTION_TYPE_LIKE","likes"],["REACTION_TYPE_RECAST","recasts"]])
-        jobs.push(tryPages(`/v1/reactionsByCast?target_fid=${MY_FID}&target_hash=${hash}&reaction_type=${rt}`,300).then(ms=>{
+      for(const [key,variants] of RTYPES)
+        jobs.push(reactPages(`/v1/reactionsByCast?target_fid=${MY_FID}&target_hash=${hash}`,variants,300).then(ms=>{
           for(const m of ms){const rf=m.data?.fid;if(!rf||rf===MY_FID)continue;const e=ent(rf);e.inbound[key]++;touch(e,m.data.timestamp||0);}}));
     }
     jobs.push(tryPages(`/v1/castsByMention?fid=${MY_FID}&reverse=true`,400).then(ms=>{
@@ -367,7 +373,7 @@ function applyWindow(){const cut=windowMonths*30*1440;
   people=f.length?f:allPeople; sel=null; refresh();}
 
 function showPanel(id){
-  if(id===-1){panel.innerHTML='<b>you</b> · the whole city is a give-and-take of you.';return;}
+  if(id===-1){panel.innerHTML='<b>you</b>';return;}
   if(id===null||id===undefined||id<0){panel.textContent="reactions flow in & out of you · bright = active recently · drag, scroll, turn, tap";return;}
   const p=people[id],b=bucket(p),act=p.lastActiveMinutes<30;
   panel.innerHTML=`<b>@${p.handle}</b> · <span style="color:${act?'#8fd4b8':'#8479ad'}">${act?'active':'last seen'} ${ago(p.lastActiveMinutes)}</span> · `+
@@ -391,10 +397,10 @@ document.getElementById("frame").addEventListener("click",e=>{const btn=e.target
   document.querySelectorAll("#frame button").forEach(b=>b.classList.remove("on"));btn.classList.add("on");windowMonths=+btn.dataset.m;applyWindow();showPanel(null);});
 window.addEventListener("resize",resize);
 
-/* boot */
+/* boot — draw the scene immediately so there's no blank/flash, then load data in */
+resize();showPanel(null);requestAnimationFrame(loop);
 allPeople=(await loadCity(viewer)).slice(0,MAX_CITY);
-if(viewer)document.getElementById("mode-badge").textContent="live";
-applyWindow();resize();showPanel(null);requestAnimationFrame(loop);
+applyWindow();
 })();
 </script>
 </body>
