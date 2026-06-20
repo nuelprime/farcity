@@ -389,7 +389,8 @@ function drawCity(){hit=[];sky();
 
 const avCache={};
 function avatarImg(url){if(!url)return null;if(avCache[url])return avCache[url];
-  const im=new Image();im.crossOrigin="anonymous";im.__ok=false;im.onload=()=>im.__ok=true;im.src=url;avCache[url]=im;return im;}
+  const prox=`https://wsrv.nl/?url=${encodeURIComponent(url)}&w=96&output=png`;
+  const im=new Image();im.crossOrigin="anonymous";im.__ok=false;im.onload=()=>im.__ok=true;im.src=prox;avCache[url]=im;return im;}
 function drawAvatar(pos,p,hi){if(!p||!p.pfp)return;const im=avatarImg(p.pfp);if(!im||!im.__ok)return;
   const R=18*zoom,cx=pos.x,cy=pos.y-26*zoom+Math.sin(performance.now()*0.002)*3*zoom,ring=hi?"#ffd479":"#9b8cff";
   ctx.save();ctx.globalAlpha=0.3;ctx.fillStyle=ring;ctx.beginPath();ctx.arc(cx,cy,R+5,0,7);ctx.fill();ctx.restore();
@@ -471,8 +472,7 @@ function setShare(on){shareMode=on;
   if(on){shareBtn.textContent="cast (0)";cancelBtn.style.display="";hintEl.textContent="tap towers to feature, then cast";sel=null;showPanel(null);}
   else{shareBtn.textContent="share";cancelBtn.style.display="none";highlights.clear();
     hintEl.textContent="drag to pan · scroll to zoom · turn with \u21BA \u21BB · tap a building";}}
-function castText(){const hs=[...highlights].map(i=>people[i]&&people[i].handle).filter(h=>h&&!h.startsWith("fid:")).slice(0,8);
-  return hs.length?`my farcaster city \u{1F303} ft. ${hs.map(h=>"@"+h).join(" ")}`:"my farcaster city \u{1F303}";}
+function castText(){return "mein farcastadt";}
 const IMGBB_KEY="";  /* <-- paste your free imgbb API key here (imgbb.com → About → API) */
 function captureCity(){const W=1200,H=675,oc=document.createElement("canvas");oc.width=W;oc.height=H;
   const octx=oc.getContext("2d"),_ctx=ctx,_CW=CW,_CH=CH,_dpr=dpr,_off=off,_zoom=zoom,_hit=hit;
