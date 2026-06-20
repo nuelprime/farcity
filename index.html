@@ -238,9 +238,9 @@ function drawYouBlock(){const c=iso(YCX,YCY),hw=TW*zoom,hh=TH*zoom,H=28*zoom,hl=
   ctx.fillStyle=sh(PLUM,hl?1.0:0.82);ctx.fill();
   ctx.beginPath();ctx.moveTo(tp.t.x,tp.t.y);ctx.lineTo(tp.r.x,tp.r.y);ctx.lineTo(tp.b.x,tp.b.y);ctx.lineTo(tp.l.x,tp.l.y);ctx.closePath();
   ctx.fillStyle=sh(PLUM,hl?1.28:1.06);ctx.fill();ctx.strokeStyle="rgba(255,255,255,0.16)";ctx.lineWidth=1;ctx.stroke();}
-function drawYouMarker(){const c=iso(YCX,YCY),t=performance.now()*0.001,hl=sel===-1;
-  const cy=c.y-TH*zoom-28*zoom-20*zoom+Math.sin(t*2)*4*zoom;
-  const w=9*zoom*(0.82+0.18*Math.sin(t*3)), topH=16*zoom, botH=10*zoom;
+function drawYouMarker(){const c=iso(YCX,YCY),ph=bobPhase*Math.PI*2,hl=sel===-1;
+  const cy=c.y-TH*zoom-28*zoom-20*zoom+Math.sin(ph)*4*zoom;
+  const w=9*zoom*(0.82+0.18*Math.sin(ph*2)), topH=16*zoom, botH=10*zoom;
   ctx.save();ctx.globalAlpha=0.22;ctx.fillStyle="#9dff9d";ctx.beginPath();ctx.ellipse(c.x,cy,w*1.7,topH*0.95,0,0,7);ctx.fill();ctx.restore();
   ctx.beginPath();ctx.moveTo(c.x,cy-topH);ctx.lineTo(c.x+w,cy);ctx.lineTo(c.x,cy+botH);ctx.closePath();ctx.fillStyle=hl?"#aaffb4":"#7CFC8A";ctx.fill();
   ctx.beginPath();ctx.moveTo(c.x,cy-topH);ctx.lineTo(c.x-w,cy);ctx.lineTo(c.x,cy+botH);ctx.closePath();ctx.fillStyle=hl?"#5fd873":"#46c85a";ctx.fill();
@@ -329,16 +329,16 @@ function avatarImg(url){if(!url)return null;if(avCache[url])return avCache[url];
   const prox=`https://wsrv.nl/?url=${encodeURIComponent(url)}&w=96&output=png`;
   const im=new Image();im.crossOrigin="anonymous";im.__ok=false;im.onload=()=>im.__ok=true;im.src=prox;avCache[url]=im;return im;}
 function drawAvatar(pos,p,hi){if(!p||!p.pfp)return;const im=avatarImg(p.pfp);if(!im||!im.__ok)return;
-  const R=18*zoom,cx=pos.x,cy=pos.y-26*zoom+Math.sin(performance.now()*0.002)*3*zoom,ring=hi?"#ffd479":"#9b8cff";
+  const R=18*zoom,cx=pos.x,cy=pos.y-26*zoom+Math.sin(bobPhase*Math.PI*2)*3*zoom,ring=hi?"#ffd479":"#9b8cff";
   ctx.save();ctx.globalAlpha=0.3;ctx.fillStyle=ring;ctx.beginPath();ctx.arc(cx,cy,R+5,0,7);ctx.fill();ctx.restore();
   ctx.beginPath();ctx.arc(cx,cy,R+2,0,7);ctx.fillStyle="#1d1536";ctx.fill();
   ctx.save();ctx.beginPath();ctx.arc(cx,cy,R,0,7);ctx.clip();ctx.drawImage(im,cx-R,cy-R,R*2,R*2);ctx.restore();
   ctx.beginPath();ctx.arc(cx,cy,R,0,7);ctx.strokeStyle=ring;ctx.lineWidth=hi?2.5:2;ctx.stroke();
   ctx.beginPath();ctx.moveTo(cx-5,cy+R+1);ctx.lineTo(cx+5,cy+R+1);ctx.lineTo(cx,cy+R+8);ctx.closePath();ctx.fillStyle=ring;ctx.fill();}
 
-let last=performance.now(),capturing=false;
+let last=performance.now(),capturing=false,bobPhase=0;const BOBMS=3142;
 function loop(now){const dt=Math.min(0.05,(now-last)/1000);last=now;
-  if(!capturing){stepParticles(dt);drawCity();}requestAnimationFrame(loop);}
+  if(!capturing){bobPhase=(now%BOBMS)/BOBMS;stepParticles(dt);drawCity();}requestAnimationFrame(loop);}
 function resize(){dpr=window.devicePixelRatio||1;CW=cv.clientWidth||680;CH=cv.clientHeight||450;
   cv.width=CW*dpr;cv.height=CH*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);}
 function refresh(){assign();buildLanes();}
@@ -423,18 +423,30 @@ function captureCity(){const W=1200,H=675,oc=document.createElement("canvas");oc
   drawOwnerBadge(octx,W,H);
   let url="";try{url=oc.toDataURL("image/png");}catch(e){console.warn("[farcity] capture blocked:",e.message);}
   ctx=_ctx;CW=_CW;CH=_CH;dpr=_dpr;off=_off;zoom=_zoom;hit=_hit;return url;}
+function buildLoopParts(){const out=[];
+  lanes.forEach(ln=>{const p=people[ln.idx];if(!p)return;
+    const dirs=[];if(scope!=="outbound")dirs.push(["in",p.inbound]);if(scope!=="inbound")dirs.push(["out",p.outbound]);
+    dirs.forEach(([dir,counts])=>{let tot=0;K.forEach(k=>tot+=counts[k]);if(tot<=0)return;
+      const n=Math.min(3,1+Math.floor(tot/8));
+      for(let i=0;i<n;i++)out.push({cells:ln.cells,L:ln.L,dir,type:pickType(counts),off:i/n});});});
+  return out.slice(0,44);}
 async function captureGif(){
   if(typeof GIF==="undefined")return null;
-  const W=640,H=360,FRAMES=16,DELAY=80;
+  const W=800,H=450,FRAMES=24,DELAY=80;
   let workerUrl;try{const wr=await fetch("https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js");workerUrl=URL.createObjectURL(await wr.blob());}catch(e){return null;}
   const oc=document.createElement("canvas");oc.width=W;oc.height=H;const octx=oc.getContext("2d");
-  const gif=new GIF({workers:2,quality:12,width:W,height:H,workerScript:workerUrl});
+  const gif=new GIF({workers:2,quality:8,dither:false,width:W,height:H,workerScript:workerUrl});
   capturing=true;
-  const _ctx=ctx,_CW=CW,_CH=CH,_dpr=dpr,_off=off,_zoom=zoom,_hit=hit;
-  ctx=octx;CW=W;CH=H;dpr=1;off={x:0,y:44};zoom=0.72;hit=[];octx.setTransform(1,0,0,1,0,0);
-  try{for(let i=0;i<FRAMES;i++){stepParticles(0.08);drawCity();drawOwnerBadge(octx,W,H);
-    gif.addFrame(octx,{copy:true,delay:DELAY});await new Promise(r=>setTimeout(r,55));}}catch(e){}
-  ctx=_ctx;CW=_CW;CH=_CH;dpr=_dpr;off=_off;zoom=_zoom;hit=_hit;capturing=false;
+  const _ctx=ctx,_CW=CW,_CH=CH,_dpr=dpr,_off=off,_zoom=zoom,_hit=hit,_bob=bobPhase,_parts=particles.slice();
+  ctx=octx;CW=W;CH=H;dpr=1;off={x:0,y:54};zoom=0.9;hit=[];octx.setTransform(1,0,0,1,0,0);
+  const lp=buildLoopParts();
+  for(let i=0;i<FRAMES;i++){const p=i/FRAMES;bobPhase=p;
+    particles.length=0;
+    for(const q of lp){const ph=((p+q.off)%1+1)%1,u=q.dir==="in"?ph*q.L:(1-ph)*q.L;
+      particles.push({cells:q.cells,L:q.L,dir:q.dir,u,type:q.type,spd:1});}
+    try{drawCity();}catch(e){}drawOwnerBadge(octx,W,H);
+    gif.addFrame(octx,{copy:true,delay:DELAY});}
+  ctx=_ctx;CW=_CW;CH=_CH;dpr=_dpr;off=_off;zoom=_zoom;hit=_hit;bobPhase=_bob;particles.length=0;capturing=false;
   try{const blob=await new Promise((res,rej)=>{gif.on("finished",res);gif.on("abort",()=>rej(new Error("abort")));gif.render();});
     return await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(blob);});}catch(e){return null;}}
 async function uploadImage(dataUrl){if(!IMGBB_KEY||!dataUrl)return null;
