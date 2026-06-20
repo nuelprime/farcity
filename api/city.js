@@ -8,8 +8,9 @@ const TTL = 900; // seconds to cache each city (15 min — graphs change slowly;
 const BANNED_FIDS = new Set([ /* e.g. 123456 */ ]);
 const BANNED_HANDLES = new Set(["casteragents"]);
 
-const U = process.env.UPSTASH_REDIS_REST_URL;
-const T = process.env.UPSTASH_REDIS_REST_TOKEN;
+const envPick = (...names) => { for (const n of names) if (process.env[n]) return process.env[n]; return undefined; };
+const U = envPick("UPSTASH_REDIS_REST_URL", "KV_REST_API_URL", "STORAGE_REST_API_URL", "STORAGE_KV_REST_API_URL", "REDIS_REST_API_URL");
+const T = envPick("UPSTASH_REDIS_REST_TOKEN", "KV_REST_API_TOKEN", "STORAGE_REST_API_TOKEN", "STORAGE_KV_REST_API_TOKEN", "REDIS_REST_API_TOKEN");
 async function redis(cmd) {
   if (!U || !T) return null;
   try {
