@@ -476,7 +476,7 @@ function castText(){return "mein farcastadt";}
 const IMGBB_KEY="8e279d8b4020388f55b9de3a383a39cd";  /* imgbb upload key */
 function captureCity(){const W=1200,H=675,oc=document.createElement("canvas");oc.width=W;oc.height=H;
   const octx=oc.getContext("2d"),_ctx=ctx,_CW=CW,_CH=CH,_dpr=dpr,_off=off,_zoom=zoom,_hit=hit;
-  ctx=octx;CW=W;CH=H;dpr=1;off={x:0,y:0};zoom=0.95;hit=[];octx.setTransform(1,0,0,1,0,0);
+  ctx=octx;CW=W;CH=H;dpr=1;off={x:0,y:-10};zoom=1.42;hit=[];octx.setTransform(1,0,0,1,0,0);
   try{drawCity();}catch(e){}
   let url="";try{url=oc.toDataURL("image/png");}catch(e){console.warn("[farcity] capture blocked:",e.message);}
   ctx=_ctx;CW=_CW;CH=_CH;dpr=_dpr;off=_off;zoom=_zoom;hit=_hit;return url;}
