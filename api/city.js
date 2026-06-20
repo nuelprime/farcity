@@ -4,7 +4,7 @@
 
 const NODE = "https://hypersnap.x-3.lol";
 const FC_EPOCH = 1609459200;
-const TTL = 300; // seconds to cache each city
+const TTL = 900; // seconds to cache each city (15 min — graphs change slowly; protects the node)
 const BANNED_FIDS = new Set([ /* e.g. 123456 */ ]);
 const BANNED_HANDLES = new Set(["casteragents"]);
 
@@ -46,6 +46,19 @@ async function mapLimit(items, n, fn) {
   let i = 0;
   const run = async () => { while (i < items.length) { const k = i++; try { await fn(items[k], k); } catch (e) {} } };
   await Promise.all(Array.from({ length: Math.min(n, items.length) }, run));
+}
+
+async function resolveUser(fid) {
+  const me = { fid, handle: "fid:" + fid, pfp: null };
+  try {
+    const r = await fetchT(`${NODE}/v1/userDataByFid?fid=${fid}`);
+    if (r.ok) { const j = await r.json();
+      for (const m of (j.messages || [])) { const u = m.data && m.data.userDataBody; if (!u) continue;
+        if ((u.type === "USER_DATA_TYPE_USERNAME" || u.type === 6) && u.value) me.handle = u.value;
+        if ((u.type === "USER_DATA_TYPE_PFP" || u.type === 1) && u.value) me.pfp = u.value;
+      } }
+  } catch (e) {}
+  return me;
 }
 
 async function build(MY_FID) {
@@ -99,11 +112,10 @@ async function build(MY_FID) {
           if ((u.type === "USER_DATA_TYPE_PFP" || u.type === 1) && u.value) p.pfp = u.value;
         } }
     } catch (e) {}
-    if (k < 8) {
-      try { const r = await fetchT(`${NODE}/v1/castsByFid?fid=${p.fid}&reverse=true&pageSize=1`);
-        if (r.ok) { const j = await r.json(); const t = j.messages && j.messages[0] && j.messages[0].data && j.messages[0].data.timestamp;
-          if (t) p.lastActiveMinutes = Math.max(0, Math.round((nowS - (t + FC_EPOCH)) / 60)); } } catch (e) {}
-    }
+    // accurate last-seen for every tower (cheap now — this build is cached)
+    try { const r = await fetchT(`${NODE}/v1/castsByFid?fid=${p.fid}&reverse=true&pageSize=1`);
+      if (r.ok) { const j = await r.json(); const t = j.messages && j.messages[0] && j.messages[0].data && j.messages[0].data.timestamp;
+        if (t) p.lastActiveMinutes = Math.max(0, Math.round((nowS - (t + FC_EPOCH)) / 60)); } } catch (e) {}
   });
   return arr.filter(p => !BANNED_HANDLES.has((p.handle || "").toLowerCase())).slice(0, 30);
 }
@@ -115,14 +127,14 @@ module.exports = async (req, res) => {
   const key = `city:${fid}`;
 
   const cached = await redis(["GET", key]);
-  if (cached) { res.setHeader("X-Cache", "hit"); res.status(200).json({ source: "live", people: JSON.parse(cached) }); return; }
+  if (cached) { const p = JSON.parse(cached); res.setHeader("X-Cache", "hit"); res.status(200).json({ source: "live", people: p.people, me: p.me }); return; }
 
   try {
     rtIdx = -1;
-    const people = await build(fid);
-    await redis(["SET", key, JSON.stringify(people), "EX", String(TTL)]);
+    const [people, me] = await Promise.all([build(fid), resolveUser(fid)]);
+    await redis(["SET", key, JSON.stringify({ people, me }), "EX", String(TTL)]);
     res.setHeader("X-Cache", "miss");
-    res.status(200).json({ source: "live", people });
+    res.status(200).json({ source: "live", people, me });
   } catch (e) {
     res.status(200).json({ source: "demo", people: [] });
   }
