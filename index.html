@@ -113,7 +113,7 @@ async function loadCity(viewer){
 
     /* OUTBOUND: your casts (replies to + mentions) — also collect recent cast hashes for inbound */
     const myHashes=[];
-    for(const m of await tryPages(`/v1/castsByFid?fid=${MY_FID}&reverse=true`,600)){
+    for(const m of await tryPages(`/v1/castsByFid?fid=${MY_FID}&reverse=true`,300)){
       const b=m.data?.castAddBody;if(!b)continue;const ts=m.data.timestamp||0;
       if(b.parentCastId?.fid&&b.parentCastId.fid!==MY_FID){const e=ent(b.parentCastId.fid);e.outbound.replies++;touch(e,ts);}
       for(const mf of (b.mentions||[]))if(mf!==MY_FID){const e=ent(mf);e.outbound.mentions++;touch(e,ts);}
@@ -121,7 +121,7 @@ async function loadCity(viewer){
     }
     /* OUTBOUND: your reactions (likes + recasts) */
     for(const [key,variants] of RTYPES){
-      for(const m of await reactPages(`/v1/reactionsByFid?fid=${MY_FID}&reverse=true`,variants,600)){
+      for(const m of await reactPages(`/v1/reactionsByFid?fid=${MY_FID}&reverse=true`,variants,300)){
         const b=m.data?.reactionBody,tf=b?.targetCastId?.fid;if(!tf||tf===MY_FID)continue;
         const e=ent(tf);e.outbound[key]++;touch(e,m.data.timestamp||0);
       }
@@ -143,7 +143,7 @@ async function loadCity(viewer){
     let arr=[...map.entries()].map(([fid,v])=>({fid,handle:"fid:"+fid,inbound:v.inbound,outbound:v.outbound,
       lastActiveMinutes:v.last?Math.max(0,Math.round((nowS-v.last)/60)):9999}))
       .filter(p=>wt(map.get(p.fid))>0 && !BANNED_FIDS.has(p.fid))
-      .sort((a,b)=>wt(map.get(b.fid))-wt(map.get(a.fid))).slice(0,44);
+      .sort((a,b)=>wt(map.get(b.fid))-wt(map.get(a.fid))).slice(0,34);
     if(!arr.length)throw new Error("no interactions found");
 
     /* resolve @handle + pfp for everyone (bounded); accurate last-seen only for the top towers */
@@ -153,11 +153,11 @@ async function loadCity(viewer){
           if(u&&(u.type==="USER_DATA_TYPE_USERNAME"||u.type===6)&&u.value)p.handle=u.value;
           if(u&&(u.type==="USER_DATA_TYPE_PFP"||u.type===1)&&u.value)p.pfp=u.value;}}
       }catch(e){}
-      if(k<12){try{const r=await fetchT(`${NODE}/v1/castsByFid?fid=${p.fid}&reverse=true&pageSize=1`);if(r.ok){const j=await r.json();
+      if(k<8){try{const r=await fetchT(`${NODE}/v1/castsByFid?fid=${p.fid}&reverse=true&pageSize=1`);if(r.ok){const j=await r.json();
         const t=j.messages?.[0]?.data?.timestamp;if(t)p.lastActiveMinutes=Math.max(0,Math.round((nowS-(t+FC_EPOCH))/60));}
       }catch(e){}}
     });
-    arr=arr.filter(p=>!BANNED_HANDLES.has((p.handle||"").toLowerCase())).slice(0,40);
+    arr=arr.filter(p=>!BANNED_HANDLES.has((p.handle||"").toLowerCase())).slice(0,30);
 
     if(badge)badge.textContent="live";
     return arr;
@@ -178,7 +178,7 @@ const litRatio=m=>Math.max(0.05,1-Math.floor(m/30)*0.17);
 const ago=m=>m<60?m+"m ago":Math.round(m/60)+"h ago";
 
 /* 4. RENDERER */
-const cv=document.getElementById("city"),ctx=cv.getContext("2d"),panel=document.getElementById("panel");
+const cv=document.getElementById("city"),panel=document.getElementById("panel");let ctx=cv.getContext("2d");
 const TW=54,TH=27,FOOT=0.54,X0=-9,X1=9,Y0=-9,Y1=9,MAX_CITY=50;
 let people=[],allPeople=[],windowMonths=6,dpr=1,CW=0,CH=0,off={x:0,y:0},dragBase={x:0,y:0},hit=[],sel=null,hov=null,zoom=0.8,rot=0;
 let shareMode=false;const highlights=new Set();
@@ -389,7 +389,7 @@ function drawCity(){hit=[];sky();
 
 const avCache={};
 function avatarImg(url){if(!url)return null;if(avCache[url])return avCache[url];
-  const im=new Image();im.__ok=false;im.onload=()=>im.__ok=true;im.src=url;avCache[url]=im;return im;}
+  const im=new Image();im.crossOrigin="anonymous";im.__ok=false;im.onload=()=>im.__ok=true;im.src=url;avCache[url]=im;return im;}
 function drawAvatar(pos,p,hi){if(!p||!p.pfp)return;const im=avatarImg(p.pfp);if(!im||!im.__ok)return;
   const R=18*zoom,cx=pos.x,cy=pos.y-26*zoom+Math.sin(performance.now()*0.002)*3*zoom,ring=hi?"#ffd479":"#9b8cff";
   ctx.save();ctx.globalAlpha=0.3;ctx.fillStyle=ring;ctx.beginPath();ctx.arc(cx,cy,R+5,0,7);ctx.fill();ctx.restore();
@@ -473,9 +473,24 @@ function setShare(on){shareMode=on;
     hintEl.textContent="drag to pan · scroll to zoom · turn with \u21BA \u21BB · tap a building";}}
 function castText(){const hs=[...highlights].map(i=>people[i]&&people[i].handle).filter(h=>h&&!h.startsWith("fid:")).slice(0,8);
   return hs.length?`my farcaster city \u{1F303} ft. ${hs.map(h=>"@"+h).join(" ")}`:"my farcaster city \u{1F303}";}
-function doCast(){const text=castText();
-  try{if(sdk&&sdk.actions&&sdk.actions.composeCast){sdk.actions.composeCast({text,embeds:[APP_URL]});setShare(false);return;}}catch(e){}
-  window.open(`https://farcaster.xyz/~/compose?text=${encodeURIComponent(text)}&embeds[]=${encodeURIComponent(APP_URL)}`,"_blank","noopener");setShare(false);}
+const IMGBB_KEY="";  /* <-- paste your free imgbb API key here (imgbb.com → About → API) */
+function captureCity(){const W=1200,H=675,oc=document.createElement("canvas");oc.width=W;oc.height=H;
+  const octx=oc.getContext("2d"),_ctx=ctx,_CW=CW,_CH=CH,_dpr=dpr,_off=off,_zoom=zoom,_hit=hit;
+  ctx=octx;CW=W;CH=H;dpr=1;off={x:0,y:0};zoom=0.95;hit=[];octx.setTransform(1,0,0,1,0,0);
+  try{drawCity();}catch(e){}
+  let url="";try{url=oc.toDataURL("image/png");}catch(e){console.warn("[farcity] capture blocked:",e.message);}
+  ctx=_ctx;CW=_CW;CH=_CH;dpr=_dpr;off=_off;zoom=_zoom;hit=_hit;return url;}
+async function uploadImage(dataUrl){if(!IMGBB_KEY||!dataUrl)return null;
+  try{const fd=new FormData();fd.append("image",dataUrl.split(",")[1]);
+    const r=await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_KEY}`,{method:"POST",body:fd});
+    if(!r.ok)return null;const j=await r.json();return (j&&j.data&&j.data.url)||null;}catch(e){return null;}}
+async function doCast(){const text=castText();shareBtn.textContent="rendering\u2026";shareBtn.disabled=true;
+  let embeds=[APP_URL];
+  try{const hosted=await uploadImage(captureCity());if(hosted)embeds=[hosted,APP_URL];}catch(e){}
+  shareBtn.disabled=false;
+  try{if(sdk&&sdk.actions&&sdk.actions.composeCast){sdk.actions.composeCast({text,embeds});setShare(false);return;}}catch(e){}
+  const q=embeds.map(u=>`&embeds[]=${encodeURIComponent(u)}`).join("");
+  window.open(`https://farcaster.xyz/~/compose?text=${encodeURIComponent(text)}${q}`,"_blank","noopener");setShare(false);}
 shareBtn.addEventListener("click",()=>{shareMode?doCast():setShare(true);});
 cancelBtn.addEventListener("click",()=>setShare(false));
 
