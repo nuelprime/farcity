@@ -412,7 +412,7 @@ function setShare(on){shareMode=on;
 function castText(){return "mein farcastadt";}
 const IMGBB_KEY="8e279d8b4020388f55b9de3a383a39cd";  /* imgbb upload key */
 function drawOwnerBadge(c,W,H){if(!owner||!owner.pfp)return;const im=avatarImg(owner.pfp);if(!im||!im.__ok)return;
-  const R=Math.round(H*0.07),cx=R+Math.round(H*0.05),cy=H-R-Math.round(H*0.05);
+  const R=Math.round(H*0.063),cx=R+Math.round(H*0.05),cy=H-R-Math.round(H*0.05);
   c.save();c.shadowColor="rgba(0,0,0,.55)";c.shadowBlur=R*0.32;c.beginPath();c.arc(cx,cy,R+3,0,7);c.fillStyle="#1d1536";c.fill();c.restore();
   c.save();c.beginPath();c.arc(cx,cy,R,0,7);c.clip();c.drawImage(im,cx-R,cy-R,R*2,R*2);c.restore();
   c.beginPath();c.arc(cx,cy,R,0,7);c.lineWidth=3;c.strokeStyle="#9b8cff";c.stroke();}
@@ -423,13 +423,14 @@ function captureCity(){const W=1200,H=675,oc=document.createElement("canvas");oc
   drawOwnerBadge(octx,W,H);
   let url="";try{url=oc.toDataURL("image/png");}catch(e){console.warn("[farcity] capture blocked:",e.message);}
   ctx=_ctx;CW=_CW;CH=_CH;dpr=_dpr;off=_off;zoom=_zoom;hit=_hit;return url;}
-function buildLoopParts(){const out=[];
-  lanes.forEach(ln=>{const p=people[ln.idx];if(!p)return;
+function buildLoopParts(){const out=[];let full=false;
+  for(const ln of lanes){if(full)break;const p=people[ln.idx];if(!p)continue;
     const dirs=[];if(scope!=="outbound")dirs.push(["in",p.inbound]);if(scope!=="inbound")dirs.push(["out",p.outbound]);
-    dirs.forEach(([dir,counts])=>{let tot=0;K.forEach(k=>tot+=counts[k]);if(tot<=0)return;
-      const n=Math.min(3,1+Math.floor(tot/8));
-      for(let i=0;i<n;i++)out.push({cells:ln.cells,L:ln.L,dir,type:pickType(counts),off:i/n});});});
-  return out.slice(0,44);}
+    for(const [dir,counts] of dirs){let tot=0;K.forEach(k=>tot+=counts[k]);if(tot<=0)continue;
+      if(out.length>=44){full=true;break;}
+      const N=Math.max(2,Math.min(6,Math.round(ln.L/2)));   // ~2 cells of travel per loop = natural pace
+      for(let k=0;k<N;k++)out.push({cells:ln.cells,L:ln.L,dir,type:pickType(counts),k,N});}}
+  return out;}
 async function captureGif(){
   if(typeof GIF==="undefined")return null;
   const W=800,H=450,FRAMES=24,DELAY=80;
@@ -442,7 +443,7 @@ async function captureGif(){
   const lp=buildLoopParts();
   for(let i=0;i<FRAMES;i++){const p=i/FRAMES;bobPhase=p;
     particles.length=0;
-    for(const q of lp){const ph=((p+q.off)%1+1)%1,u=q.dir==="in"?ph*q.L:(1-ph)*q.L;
+    for(const q of lp){const f=((q.k+p)/q.N)%1,u=q.dir==="in"?f*q.L:(1-f)*q.L;
       particles.push({cells:q.cells,L:q.L,dir:q.dir,u,type:q.type,spd:1});}
     try{drawCity();}catch(e){}drawOwnerBadge(octx,W,H);
     gif.addFrame(octx,{copy:true,delay:DELAY});}
